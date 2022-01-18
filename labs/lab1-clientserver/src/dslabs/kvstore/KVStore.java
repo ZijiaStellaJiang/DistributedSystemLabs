@@ -3,6 +3,7 @@ package dslabs.kvstore;
 import dslabs.framework.Application;
 import dslabs.framework.Command;
 import dslabs.framework.Result;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NonNull;
@@ -62,22 +63,33 @@ public class KVStore implements Application {
     }
 
     // Your code here...
+    private static ConcurrentHashMap<String, String> kvStorage
+            = new ConcurrentHashMap();
+
 
     @Override
     public KVStoreResult execute(Command command) {
         if (command instanceof Get) {
             Get g = (Get) command;
             // Your code here...
+            String value = kvStorage.get(g.key);
+            return value != null? new GetResult(value) : new KeyNotFound();
         }
 
         if (command instanceof Put) {
             Put p = (Put) command;
             // Your code here...
+            kvStorage.put(p.key, p.value);
+            return new PutOk();
         }
 
         if (command instanceof Append) {
             Append a = (Append) command;
             // Your code here...
+            String preValue = kvStorage.get(a.key);
+            String newValue = preValue == null? a.value : preValue+a.value;
+            kvStorage.put(a.key, newValue);
+            return new AppendResult(newValue);
         }
 
         throw new IllegalArgumentException();
