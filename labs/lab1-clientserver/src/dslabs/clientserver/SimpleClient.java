@@ -1,6 +1,7 @@
 package dslabs.clientserver;
 
 import com.google.common.base.Objects;
+import dslabs.atmostonce.AMOCommand;
 import dslabs.framework.Address;
 import dslabs.framework.Client;
 import dslabs.framework.Command;
@@ -25,7 +26,7 @@ class SimpleClient extends Node implements Client {
     // Your code here...
     private Command command;
     private Result result;
-    private int sequenceNum = 0;
+    private int sequenceNum = -1;
 
     /* -------------------------------------------------------------------------
         Construction and Initialization
@@ -50,7 +51,7 @@ class SimpleClient extends Node implements Client {
         this.result = null;
         this.sequenceNum = this.sequenceNum < Integer.MAX_VALUE? this.sequenceNum + 1 : 0;
 
-        send(new Request(this.command, sequenceNum), serverAddress);
+        send(new Request(new AMOCommand(this.command, sequenceNum, this.address())), serverAddress);
         set(new ClientTimer(this.command, sequenceNum), CLIENT_RETRY_MILLIS);
     }
 
@@ -75,8 +76,8 @@ class SimpleClient extends Node implements Client {
        -----------------------------------------------------------------------*/
     private synchronized void handleReply(Reply m, Address sender) {
         // Your code here...
-        if (m.sequenceNum() == this.sequenceNum) {
-            result = m.result();
+        if (m.result().sequenceNum() == this.sequenceNum) {
+            result = m.result().result;
             notify();
         }
     }
@@ -87,7 +88,7 @@ class SimpleClient extends Node implements Client {
     private synchronized void onClientTimer(ClientTimer t) {
         // Your code here...
         if (Objects.equal(this.command, t.command()) && this.sequenceNum == t.sequenceNum() && result == null) {
-            send(new Request(this.command, sequenceNum), serverAddress);
+            send(new Request(new AMOCommand(this.command, sequenceNum, this.address())), serverAddress);
             set(t, CLIENT_RETRY_MILLIS);
         }
     }

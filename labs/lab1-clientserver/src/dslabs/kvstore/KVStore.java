@@ -63,7 +63,7 @@ public class KVStore implements Application {
     }
 
     // Your code here...
-    private static ConcurrentHashMap<String, String> kvStorage
+    private ConcurrentHashMap<String, String> kvStorage
             = new ConcurrentHashMap();
 
 

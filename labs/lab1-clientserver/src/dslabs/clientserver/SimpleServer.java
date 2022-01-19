@@ -1,5 +1,8 @@
 package dslabs.clientserver;
 
+import dslabs.atmostonce.AMOApplication;
+import dslabs.atmostonce.AMOCommand;
+import dslabs.atmostonce.AMOResult;
 import dslabs.framework.Address;
 import dslabs.framework.Application;
 import dslabs.framework.Node;
@@ -17,7 +20,7 @@ import lombok.ToString;
 @EqualsAndHashCode(callSuper = true)
 class SimpleServer extends Node {
     // Your code here...
-    private KVStore app;
+    private AMOApplication app;
     /* -------------------------------------------------------------------------
         Construction and Initialization
        -----------------------------------------------------------------------*/
@@ -26,9 +29,9 @@ class SimpleServer extends Node {
 
         // Your code here...
         if (app instanceof KVStore) {
-            this.app = (KVStore) app;
+            this.app = new AMOApplication((KVStore) app);
         } else {
-            this.app = new KVStore();
+            this.app = new AMOApplication(new KVStore());
         }
     }
 
@@ -42,7 +45,7 @@ class SimpleServer extends Node {
        -----------------------------------------------------------------------*/
     private void handleRequest(Request m, Address sender) {
         // Your code here...
-        KVStoreResult result = app.execute(m.command());
-        send(new Reply(result, m.sequenceNum()), sender);
+        AMOResult result = app.execute(m.command());
+        send(new Reply(result), sender);
     }
 }
