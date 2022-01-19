@@ -1,13 +1,11 @@
 package dslabs.clientserver;
 
 import dslabs.atmostonce.AMOApplication;
-import dslabs.atmostonce.AMOCommand;
 import dslabs.atmostonce.AMOResult;
 import dslabs.framework.Address;
 import dslabs.framework.Application;
 import dslabs.framework.Node;
 import dslabs.kvstore.KVStore;
-import dslabs.kvstore.KVStore.KVStoreResult;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
