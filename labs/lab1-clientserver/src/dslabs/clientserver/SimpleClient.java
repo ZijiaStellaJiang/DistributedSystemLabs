@@ -77,7 +77,7 @@ class SimpleClient extends Node implements Client {
     private synchronized void handleReply(Reply m, Address sender) {
         // Your code here...
         if (m.result().sequenceNum() == sequenceNum) {
-            result = m.result();
+            result = m.result().result();
             notify();
         }
     }

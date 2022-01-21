@@ -53,6 +53,6 @@ public final class AMOApplication<T extends Application>
 
     public boolean alreadyExecuted(AMOCommand amoCommand) {
         // Your code here...
-        return this.lastAmoCommand == null || amoCommand.sequenceNum() <= lastAmoCommand.sequenceNum();
+        return this.lastAmoCommand != null && amoCommand.sequenceNum() <= lastAmoCommand.sequenceNum();
     }
 }

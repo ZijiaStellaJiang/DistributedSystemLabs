@@ -7,6 +7,6 @@ import lombok.Data;
 @Data
 public final class AMOResult implements Result {
     // Your code here...
-    public  final Result command;
+    public  final Result result;
     public final int sequenceNum;
 }
