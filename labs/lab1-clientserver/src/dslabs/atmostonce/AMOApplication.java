@@ -3,6 +3,7 @@ package dslabs.atmostonce;
 import dslabs.framework.Application;
 import dslabs.framework.Command;
 import dslabs.framework.Result;
+import java.util.Objects;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NonNull;
@@ -17,6 +18,8 @@ public final class AMOApplication<T extends Application>
     @Getter @NonNull private final T application;
 
     // Your code here...
+    private AMOCommand lastAmoCommand;
+    private AMOResult lastAmoResult;
 
     @Override
     public AMOResult execute(Command command) {
@@ -27,7 +30,13 @@ public final class AMOApplication<T extends Application>
         AMOCommand amoCommand = (AMOCommand) command;
 
         // Your code here...
-        return null;
+        if (!alreadyExecuted(amoCommand)) {
+           Result r = application.execute(amoCommand.command());
+           this.lastAmoCommand = amoCommand;
+           this.lastAmoResult = new AMOResult(r, amoCommand.sequenceNum());
+        }
+
+        return lastAmoResult;
     }
 
     public Result executeReadOnly(Command command) {
@@ -44,6 +53,6 @@ public final class AMOApplication<T extends Application>
 
     public boolean alreadyExecuted(AMOCommand amoCommand) {
         // Your code here...
-        return false;
+        return this.lastAmoCommand == null || amoCommand.sequenceNum() <= lastAmoCommand.sequenceNum();
     }
 }

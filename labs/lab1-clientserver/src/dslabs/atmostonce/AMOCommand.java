@@ -6,4 +6,6 @@ import lombok.Data;
 @Data
 public final class AMOCommand implements Command {
     // Your code here...
+    public final Command command;
+    public final int sequenceNum;
 }
