@@ -51,7 +51,7 @@ class SimpleClient extends Node implements Client {
 
         sequenceNum++;
 
-        send(new Request(new AMOCommand(command, sequenceNum)), serverAddress);
+        send(new Request(new AMOCommand(command, sequenceNum, this.address())), serverAddress);
         set(new ClientTimer(command), CLIENT_RETRY_MILLIS);
     }
 
@@ -88,7 +88,7 @@ class SimpleClient extends Node implements Client {
     private synchronized void onClientTimer(ClientTimer t) {
         // Your code here...
         if (Objects.equal(command, t.command()) && result == null) {
-            send(new Request(new AMOCommand(command, sequenceNum)), serverAddress);
+            send(new Request(new AMOCommand(command, sequenceNum, this.address())), serverAddress);
             set(t, CLIENT_RETRY_MILLIS);
         }
     }
