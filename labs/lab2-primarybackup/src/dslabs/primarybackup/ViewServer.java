@@ -44,16 +44,22 @@ class ViewServer extends Node {
         // Your code here...
         currentRoundServers.add(sender);
         if(waitingFirstPrimary()){
+            // set the first pinging server as primary directly
             promotingView = new View(INITIAL_VIEWNUM, sender, null);
         }
         if(promotingView != null){
+            // try ack
             int viewNum = m.viewNum();
             updateAck(viewNum,sender);
         }
         if(acknowledged){
+            // try select backup server
+            // as soon as current view is acknowledged,
+            // and the current backup is null
             if(waitingBackup()){
                 Address backup = selectNewBackup();
                 if(backup != null){
+                    // only set backup if there is an available one
                     promotingView = new View(currentView.viewNum()+1, currentView.primary(), backup);
                     acknowledged = false;
                 }
@@ -76,9 +82,13 @@ class ViewServer extends Node {
     private void onPingCheckTimer(PingCheckTimer t) {
         // Your code here...
         if(acknowledged){
+            // only if the current view is acknowledged
+            // there is chance that it can promote to the next view
             if(primaryFail()) {
                 promoteBackup();
             }else if(backupFail()){
+                // if the backup server fails
+                // either find a sub or remove it
                 Address backup = selectNewBackup();
                 promotingView = new View(currentView.viewNum()+1, currentView.primary(), backup);
                 acknowledged = false;
@@ -92,6 +102,10 @@ class ViewServer extends Node {
         Utils
        -----------------------------------------------------------------------*/
     // Your code here...
+
+    /**
+     * ack
+     */
     private void updateAck(int viewNum, Address sender){
         if (sender.equals(promotingView.primary()) && viewNum == promotingView.viewNum()) {
             acknowledged = true;
@@ -100,6 +114,11 @@ class ViewServer extends Node {
         }
     }
 
+    /**
+     * if the backup is null, do nothing
+     * else, promote the backup to be primary
+     * meanwhile, try to find sub for backup
+     */
     private void promoteBackup(){
         Address newPrimary = currentView.backup();
         if(newPrimary!=null){
@@ -109,6 +128,11 @@ class ViewServer extends Node {
         }
     }
 
+    /**
+     * find a potential backup server
+     * from all pinging servers
+     * @return server address or null if no such server found
+     */
     private Address selectNewBackup(){
         for(Address potentialBackup : currentRoundServers){
             if(!potentialBackup.equals(currentView.primary())
