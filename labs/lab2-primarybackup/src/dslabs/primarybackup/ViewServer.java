@@ -3,6 +3,7 @@ package dslabs.primarybackup;
 import dslabs.framework.Address;
 import dslabs.framework.Node;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Set;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
@@ -19,7 +20,6 @@ class ViewServer extends Node {
     private View currentView;
     private View promotingView;
     boolean acknowledged;
-    Set<Address> lastRoundServers;
     Set<Address> currentRoundServers;
     /* -------------------------------------------------------------------------
         Construction and Initialization
@@ -33,8 +33,7 @@ class ViewServer extends Node {
         set(new PingCheckTimer(), PING_CHECK_MILLIS);
         // Your code here...
         this.currentView = new View(STARTUP_VIEWNUM,null,null);
-        this.promotingView = new View(STARTUP_VIEWNUM,null,null);
-        this.lastRoundServers = new HashSet<>();
+        this.promotingView = null;
         this.currentRoundServers = new HashSet<>();
         this.acknowledged = false;
     }
@@ -44,17 +43,32 @@ class ViewServer extends Node {
        -----------------------------------------------------------------------*/
     private void handlePing(Ping m, Address sender) {
         // Your code here...
-        int viewNum = m.viewNum();
-        if(!acknowledged){
+        currentRoundServers.add(sender);
+        if(waitingFirstPrimary()){
+            promotingView = new View(INITIAL_VIEWNUM, sender, null);
+        }
+        if(promotingView != null){
+            int viewNum = m.viewNum();
             updateAck(viewNum,sender);
         }
-        currentRoundServers.add(sender);
-        send(new ViewReply(this.currentView),sender);
+        if(acknowledged){
+            if(waitingBackup()){
+                Address backup = selectNewBackup();
+                if(backup != null){
+                    promotingView = new View(currentView.viewNum()+1, currentView.primary(), backup);
+                    acknowledged = false;
+                }
+            }
+        }
+
+        View reply = promotingView == null ? currentView : promotingView;
+        send(new ViewReply(reply), sender);
     }
 
     private void handleGetView(GetView m, Address sender) {
         // Your code here...
-        send(new ViewReply(this.currentView),sender);
+        View reply = promotingView == null ? currentView : promotingView;
+        send(new ViewReply(reply), sender);
     }
 
     /* -------------------------------------------------------------------------
@@ -62,9 +76,16 @@ class ViewServer extends Node {
        -----------------------------------------------------------------------*/
     private void onPingCheckTimer(PingCheckTimer t) {
         // Your code here...
-        if (getCurrentViewNum() == STARTUP_VIEWNUM) {
-
+        if(acknowledged){
+            if(primaryFail()) {
+                promoteBackup();
+            }else if(backupFail()){
+                Address backup = selectNewBackup();
+                promotingView = new View(currentView.viewNum()+1, currentView.primary(), backup);
+                acknowledged = false;
+            }
         }
+        currentRoundServers = new HashSet<>();
         set(t, PING_CHECK_MILLIS);
     }
 
@@ -73,44 +94,45 @@ class ViewServer extends Node {
        -----------------------------------------------------------------------*/
     // Your code here...
     private void updateAck(int viewNum, Address sender){
-        if (sender.equals(getPromotingPrimary()) && viewNum == getPromotingViewNum()) {
-            this.acknowledged = true;
-            this.currentView = this.promotingView;
-            this.promotingView = null;
+        if (sender.equals(promotingView.primary()) && viewNum == promotingView.viewNum()) {
+            acknowledged = true;
+            currentView = promotingView;
+            promotingView = null;
         }
     }
 
-    private int getCurrentViewNum() {
-        return this.currentView.viewNum();
+    private void promoteBackup(){
+        Address newPrimary = currentView.backup();
+        if(newPrimary!=null){
+            Address newBackup = selectNewBackup();
+            promotingView = new View(currentView.viewNum()+1, newPrimary, newBackup);
+            acknowledged = false;
+        }
     }
 
-    private Address getCurrentPrimary() {
-        return this.currentView.primary();
+    private Address selectNewBackup(){
+        for(Address potentialBackup : currentRoundServers){
+            if(!potentialBackup.equals(currentView.primary())
+                    && !potentialBackup.equals(currentView.backup())){
+                return potentialBackup;
+            }
+        }
+        return null;
     }
-
-    private Address getCurrentBackup() {
-        return this.currentView.backup();
-    }
-
-    private int getPromotingViewNum() {
-        return this.promotingView.viewNum();
-    }
-
-    private Address getPromotingPrimary() {
-        return this.promotingView.primary();
-    }
-
-    private Address getPromotingBackup() {
-        return this.promotingView.backup();
-    }
-
-
 
     private boolean primaryFail() {
-        return !currentRoundServers.contains(getCurrentPrimary());
+        return currentView.primary() != null && !currentRoundServers.contains(currentView.primary());
     }
 
     private boolean backupFail() {
-        return !currentRoundServers.contains(getCurrentBackup());
+        return currentView.backup() != null && !currentRoundServers.contains(currentView.backup());
+    }
+
+    private boolean waitingFirstPrimary(){
+        return promotingView == null && currentView.viewNum() == STARTUP_VIEWNUM;
+    }
+
+    private boolean waitingBackup(){
+        return currentView.backup() == null;
     }
 }
