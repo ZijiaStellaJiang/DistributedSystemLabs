@@ -3,7 +3,6 @@ package dslabs.primarybackup;
 import dslabs.framework.Address;
 import dslabs.framework.Node;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Set;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
