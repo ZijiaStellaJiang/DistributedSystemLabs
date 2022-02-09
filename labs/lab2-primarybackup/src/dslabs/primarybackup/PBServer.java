@@ -3,6 +3,7 @@ package dslabs.primarybackup;
 import dslabs.framework.Address;
 import dslabs.framework.Application;
 import dslabs.framework.Node;
+import dslabs.kvstore.KVStore;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
@@ -12,6 +13,8 @@ class PBServer extends Node {
     private final Address viewServer;
 
     // Your code here...
+    private int curViewNum;
+    private AMOApplication app;
 
     /* -------------------------------------------------------------------------
         Construction and Initialization
@@ -21,11 +24,18 @@ class PBServer extends Node {
         this.viewServer = viewServer;
 
         // Your code here...
+        if (app instanceof KVStore) {
+            this.app = new AMOApplication((KVStore) app);
+        } else {
+            this.app = new AMOApplication(new KVStore());
+        }
+
     }
 
     @Override
     public void init() {
         // Your code here...
+
     }
 
     /* -------------------------------------------------------------------------
@@ -54,4 +64,6 @@ class PBServer extends Node {
         Utils
        -----------------------------------------------------------------------*/
     // Your code here...
+
+//    private void Ping()
 }

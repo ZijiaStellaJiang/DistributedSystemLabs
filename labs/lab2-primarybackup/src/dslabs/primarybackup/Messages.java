@@ -26,11 +26,14 @@ class ViewReply implements Message {
 @Data
 class Request implements Message {
     // Your code here...
+    private final AMOCommand command;
 }
 
 @Data
 class Reply implements Message {
     // Your code here...
+    private final AMOResult result;
+    private final boolean correctPrimary;
 }
 
 // Your code here...
