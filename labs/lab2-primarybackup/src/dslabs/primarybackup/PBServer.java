@@ -1,7 +1,5 @@
 package dslabs.primarybackup;
 
-import dslabs.atmostonce.AMOApplication;
-import dslabs.atmostonce.AMOResult;
 import dslabs.framework.Address;
 import dslabs.framework.Application;
 import dslabs.framework.Node;

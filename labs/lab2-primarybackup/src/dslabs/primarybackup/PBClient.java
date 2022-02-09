@@ -1,7 +1,6 @@
 package dslabs.primarybackup;
 
 import com.google.common.base.Objects;
-import dslabs.atmostonce.AMOCommand;
 import dslabs.framework.Address;
 import dslabs.framework.Client;
 import dslabs.framework.Command;
@@ -87,7 +86,6 @@ class PBClient extends Node implements Client {
 
     // Your code here...
     private synchronized void updateView(){
-        currentView = null;
         send(new GetView(),viewServer);
     }
 

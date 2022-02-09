@@ -1,8 +1,6 @@
 package dslabs.primarybackup;
 
-import dslabs.atmostonce.AMOApplication;
-import dslabs.atmostonce.AMOCommand;
-import dslabs.atmostonce.AMOResult;
+
 import dslabs.framework.Application;
 import dslabs.framework.Message;
 import lombok.Data;
