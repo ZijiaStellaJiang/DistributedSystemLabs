@@ -52,3 +52,8 @@ class AppReply implements Message{
 class ForwardRequest implements Message{
     private final AMOCommand command;
 }
+
+@Data
+class ForwardReply implements Message{
+    private final AMOResult result;
+}

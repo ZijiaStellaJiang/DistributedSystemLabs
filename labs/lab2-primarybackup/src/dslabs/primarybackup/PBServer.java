@@ -6,6 +6,7 @@ import dslabs.framework.Node;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
+import static dslabs.primarybackup.ForwardTimer.FORWARD_MILLIS;
 import static dslabs.primarybackup.PingTimer.PING_MILLIS;
 import static dslabs.primarybackup.ViewServer.STARTUP_VIEWNUM;
 
@@ -16,6 +17,8 @@ class PBServer extends Node {
     // Your code here...
     private final AMOApplication<Application> app;
     private View currentView;
+    private ForwardRequest forwardRequest;
+    private ForwardReply forwardReply;
     // 0: idle, 1: primary, 2: backup
     private int state;
 
@@ -40,12 +43,20 @@ class PBServer extends Node {
     /* -------------------------------------------------------------------------
         Message Handlers
        -----------------------------------------------------------------------*/
-    private void handleRequest(Request m, Address sender) {
+    private void handleRequest(Request m, Address sender)
+            throws InterruptedException {
         // Your code here...
         if(state == 1){
+            //TODO: forwardReply == null 这个条件有很大问题
+            while(currentView.backup() != null && forwardReply == null){
+                wait();
+            }
             AMOResult r = app.execute(m.command());
             send(new Reply(r), sender);
-            //send(new ForwardRequest(m.command()), currentView.backup());
+            if(currentView.backup() != null){
+                send(new ForwardRequest(m.command()), currentView.backup());
+                set(new ForwardTimer(m.command()),FORWARD_MILLIS);
+            }
         }
     }
 
@@ -65,7 +76,19 @@ class PBServer extends Node {
     // Your code here...
 
     private void handleForwardRequest(ForwardRequest f, Address sender){
+        if(state == 2 && sender.equals(currentView.primary())){
+            AMOResult r = app.execute(f.command());
+            send(new ForwardReply(r), sender);
+        }
+    }
 
+    private void handleForwardReply(ForwardReply f, Address sender){
+        if(state == 1 && sender.equals(currentView.backup())){
+            if(f.result().sequenceNum == forwardRequest.command().sequenceNum){
+                forwardReply = f;
+                notify();
+            }
+        }
     }
 
     private void handleRequestApp(RequestApp m, Address sender){
@@ -80,6 +103,10 @@ class PBServer extends Node {
         send(new Ping(currentView.viewNum()), viewServer);
     }
 
+    private void onForwardTimer(ForwardTimer t){
+        send(new ForwardRequest(t.command()), currentView.backup());
+        set(t,FORWARD_MILLIS);
+    }
     // Your code here...
 
     /* -------------------------------------------------------------------------
