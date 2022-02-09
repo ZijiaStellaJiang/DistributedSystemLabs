@@ -12,6 +12,7 @@ class PBServer extends Node {
     private final Address viewServer;
 
     // Your code here...
+    private View currentView;
 
     /* -------------------------------------------------------------------------
         Construction and Initialization

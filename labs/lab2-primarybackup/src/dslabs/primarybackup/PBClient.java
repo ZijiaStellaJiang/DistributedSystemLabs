@@ -33,7 +33,11 @@ class PBClient extends Node implements Client {
     @Override
     public synchronized void init() {
         // Your code here...
-        send(new GetView(),viewServer);
+        try {
+            updateView();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
     }
 
     /* -------------------------------------------------------------------------
@@ -86,19 +90,21 @@ class PBClient extends Node implements Client {
     }
 
     // Your code here...
+    private synchronized void updateView() throws InterruptedException{
+        currentView = null;
+        send(new GetView(),viewServer);
+        while(currentView == null){
+            wait();
+        }
+    }
 
     /* -------------------------------------------------------------------------
         Timer Handlers
        -----------------------------------------------------------------------*/
-    private synchronized void onClientTimer(ClientTimer t)
-            throws InterruptedException {
+    private synchronized void onClientTimer(ClientTimer t) throws InterruptedException{
         // Your code here...
         if (Objects.equal(command, t.command()) && result == null) {
-            currentView = null;
-            send(new GetView(),viewServer);
-            while(currentView == null){
-                wait();
-            }
+            updateView();
             send(new Request(new AMOCommand(command, sequenceNum, this.address())), currentView.primary());
             set(t, CLIENT_RETRY_MILLIS);
         }
