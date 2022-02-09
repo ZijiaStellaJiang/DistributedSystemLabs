@@ -33,11 +33,7 @@ class PBClient extends Node implements Client {
     @Override
     public synchronized void init() {
         // Your code here...
-        try {
-            updateView();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+        updateView();
     }
 
     /* -------------------------------------------------------------------------
@@ -83,25 +79,22 @@ class PBClient extends Node implements Client {
 
     private synchronized void handleViewReply(ViewReply m, Address sender) {
         // Your code here...
-        if(sender.equals(viewServer)){
+        if(sender.equals(viewServer) && m.view().viewNum() >
+                currentView.viewNum()){
             currentView = m.view();
-            notify();
         }
     }
 
     // Your code here...
-    private synchronized void updateView() throws InterruptedException{
+    private synchronized void updateView(){
         currentView = null;
         send(new GetView(),viewServer);
-        while(currentView == null){
-            wait();
-        }
     }
 
     /* -------------------------------------------------------------------------
         Timer Handlers
        -----------------------------------------------------------------------*/
-    private synchronized void onClientTimer(ClientTimer t) throws InterruptedException{
+    private synchronized void onClientTimer(ClientTimer t){
         // Your code here...
         if (Objects.equal(command, t.command()) && result == null) {
             updateView();
