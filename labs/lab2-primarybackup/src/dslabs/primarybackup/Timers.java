@@ -34,3 +34,8 @@ final class RequestAppTimer implements Timer {
     static final int REQUESTAPP_MILLIS = 50;
     private final RequestApp request;
 }
+
+@Data
+final class ClientGetViewTimer implements Timer {
+    static final int GETVIEW_MILLIS = 50;
+}

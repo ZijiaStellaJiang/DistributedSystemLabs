@@ -9,6 +9,7 @@ import lombok.ToString;
 import static dslabs.primarybackup.ForwardTimer.FORWARD_MILLIS;
 import static dslabs.primarybackup.PingTimer.PING_MILLIS;
 import static dslabs.primarybackup.RequestAppTimer.REQUESTAPP_MILLIS;
+import static dslabs.primarybackup.ViewServer.INITIAL_VIEWNUM;
 import static dslabs.primarybackup.ViewServer.STARTUP_VIEWNUM;
 
 @ToString(callSuper = true)
@@ -69,7 +70,9 @@ class PBServer extends Node {
         View view = m.view();
         if(sender.equals(viewServer) && view.viewNum() > currentView.viewNum()){
             if(this.address().equals(view.primary())){
-                if(state == 2 && view.viewNum() == currentView.viewNum() + 1){
+                if(state == 0 && view.viewNum() == INITIAL_VIEWNUM) {
+                    setAsPrimary(view);
+                }else if(state == 2 && view.viewNum() == currentView.viewNum() + 1){
                     setAsPrimary(view);
                 }
             }else if(this.address().equals(view.backup())){

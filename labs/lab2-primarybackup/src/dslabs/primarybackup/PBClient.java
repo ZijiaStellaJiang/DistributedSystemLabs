@@ -10,6 +10,7 @@ import lombok.EqualsAndHashCode;
 import lombok.SneakyThrows;
 import lombok.ToString;
 
+import static dslabs.primarybackup.ClientGetViewTimer.GETVIEW_MILLIS;
 import static dslabs.primarybackup.ClientTimer.CLIENT_RETRY_MILLIS;
 
 @ToString(callSuper = true)
@@ -43,14 +44,13 @@ class PBClient extends Node implements Client {
     @Override
     public synchronized void sendCommand(Command command) {
         // Your code here...
-        while(currentView == null){
-            wait();
-        }
          this.command = command;
          this.result = null;
          sequenceNum++;
-         send(new Request(new AMOCommand(command, sequenceNum, this.address())), currentView.primary());
-         set(new ClientTimer(command), CLIENT_RETRY_MILLIS);
+         if(currentView != null && currentView.primary() != null){
+            send(new Request(new AMOCommand(command, sequenceNum, this.address())), currentView.primary());
+         }
+        set(new ClientTimer(command), CLIENT_RETRY_MILLIS);
     }
 
     @Override
@@ -92,6 +92,7 @@ class PBClient extends Node implements Client {
     // Your code here...
     private synchronized void updateView(){
         send(new GetView(),viewServer);
+        set(new ClientGetViewTimer(), GETVIEW_MILLIS);
     }
 
     /* -------------------------------------------------------------------------
@@ -99,10 +100,20 @@ class PBClient extends Node implements Client {
        -----------------------------------------------------------------------*/
     private synchronized void onClientTimer(ClientTimer t){
         // Your code here...
-        if (Objects.equal(command, t.command()) && result == null) {
+        if(currentView == null || currentView.primary() == null){
+            updateView();
+            set(t, CLIENT_RETRY_MILLIS);
+        } else if (Objects.equal(command, t.command()) && result == null) {
             updateView();
             send(new Request(new AMOCommand(command, sequenceNum, this.address())), currentView.primary());
             set(t, CLIENT_RETRY_MILLIS);
+        }
+    }
+
+    private synchronized void onClientGetViewTimer(ClientGetViewTimer t){
+        if(currentView == null){
+            send(new GetView(),viewServer);
+            set(t, GETVIEW_MILLIS);
         }
     }
 }
