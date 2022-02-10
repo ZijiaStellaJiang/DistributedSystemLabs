@@ -1,6 +1,7 @@
 package dslabs.primarybackup;
 
 
+import dslabs.framework.Address;
 import dslabs.framework.Application;
 import dslabs.framework.Message;
 import lombok.Data;

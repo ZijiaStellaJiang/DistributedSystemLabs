@@ -7,6 +7,7 @@ import dslabs.framework.Command;
 import dslabs.framework.Node;
 import dslabs.framework.Result;
 import lombok.EqualsAndHashCode;
+import lombok.SneakyThrows;
 import lombok.ToString;
 
 import static dslabs.primarybackup.ClientTimer.CLIENT_RETRY_MILLIS;
@@ -38,16 +39,18 @@ class PBClient extends Node implements Client {
     /* -------------------------------------------------------------------------
         Client Methods
        -----------------------------------------------------------------------*/
+    @SneakyThrows
     @Override
     public synchronized void sendCommand(Command command) {
         // Your code here...
-        this.command = command;
-        this.result = null;
-
-        sequenceNum++;
-
-        send(new Request(new AMOCommand(command, sequenceNum, this.address())), currentView.primary());
-        set(new ClientTimer(command), CLIENT_RETRY_MILLIS);
+        while(currentView == null){
+            wait();
+        }
+         this.command = command;
+         this.result = null;
+         sequenceNum++;
+         send(new Request(new AMOCommand(command, sequenceNum, this.address())), currentView.primary());
+         set(new ClientTimer(command), CLIENT_RETRY_MILLIS);
     }
 
     @Override
@@ -78,9 +81,11 @@ class PBClient extends Node implements Client {
 
     private synchronized void handleViewReply(ViewReply m, Address sender) {
         // Your code here...
-        if(sender.equals(viewServer) && m.view().viewNum() >
-                currentView.viewNum()){
+        if(sender.equals(viewServer)){
+            if(currentView == null || m.view().viewNum() >
+                    currentView.viewNum())
             currentView = m.view();
+            notify();
         }
     }
 

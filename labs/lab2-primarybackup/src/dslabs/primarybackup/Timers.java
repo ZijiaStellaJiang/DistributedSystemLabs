@@ -22,9 +22,15 @@ final class ClientTimer implements Timer {
     private final Command command;
 }
 
+// Your code here...
 @Data
 final class ForwardTimer implements Timer {
     static final int FORWARD_MILLIS = 25;
     private final AMOCommand command;
 }
-// Your code here...
+
+@Data
+final class RequestAppTimer implements Timer {
+    static final int REQUESTAPP_MILLIS = 50;
+    private final RequestApp request;
+}
