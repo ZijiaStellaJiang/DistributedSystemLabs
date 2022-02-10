@@ -1,5 +1,6 @@
 package dslabs.primarybackup;
 
+import dslabs.primarybackup.AMOApplication;
 import dslabs.framework.Message;
 import lombok.Data;
 
@@ -33,7 +34,15 @@ class Request implements Message {
 class Reply implements Message {
     // Your code here...
     private final AMOResult result;
-    private final boolean correctPrimary;
 }
 
 // Your code here...
+@Data
+class RequestRecordCopy implements Message {
+}
+
+
+@Data
+class ReplyRecordCopy implements Message {
+    private final AMOApplication app;
+}

@@ -80,11 +80,6 @@ class PBClient extends Node implements Client {
     private synchronized void handleReply(Reply m, Address sender) {
         // Your code here...
         if (m.result().sequenceNum() == this.sequenceNum) {
-            if (!m.correctPrimary()) {
-                send(new GetView(), this.viewServer);
-                this.primaryServer = null;
-                return;
-            }
             result = m.result().result;
             notify();
         }
@@ -93,7 +88,7 @@ class PBClient extends Node implements Client {
 
     private synchronized void handleViewReply(ViewReply m, Address sender) {
         // Your code here...
-        if (sender.equals(this.viewServer)) {
+        if (m.view().viewNum() > this.currentView.viewNum()) {
             this.currentView = m.view();
             this.primaryServer = this.currentView.primary();
             notify();
@@ -108,6 +103,7 @@ class PBClient extends Node implements Client {
     private synchronized void onClientTimer(ClientTimer t) {
         // Your code here...
         if (Objects.equal(this.command, t.command()) && this.sequenceNum == t.sequenceNum() && result == null) {
+            send(new GetView(), this.viewServer);
             send(new Request(new AMOCommand(this.command, sequenceNum, this.address())), this.primaryServer);
             set(t, CLIENT_RETRY_MILLIS);
         }
