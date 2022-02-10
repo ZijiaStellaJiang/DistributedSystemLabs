@@ -46,14 +46,13 @@ class PBServer extends Node {
     /* -------------------------------------------------------------------------
         Message Handlers
        -----------------------------------------------------------------------*/
-    private void handleRequest(Request m, Address sender)
-            throws InterruptedException {
+    private void handleRequest(Request m, Address sender) {
         // Your code here...
         if(state == 1){
             // if is primary and has backup and has sent forwardRequest
             // then won't process the request unless the previous gets executed by backup
-            while(currentView.backup() != null && forwardRequest != null && forwardReply == null){
-                wait();
+            if(currentView.backup() != null && forwardRequest != null && forwardReply == null){
+                return;
             }
             AMOResult r = app.execute(m.command());
             send(new Reply(r), sender);
@@ -72,8 +71,10 @@ class PBServer extends Node {
             if(this.address().equals(view.primary())){
                 if(state == 0 && view.viewNum() == INITIAL_VIEWNUM) {
                     setAsPrimary(view);
-                }else if(state == 2 && view.viewNum() == currentView.viewNum() + 1){
-                    setAsPrimary(view);
+                }else if(view.viewNum() == currentView.viewNum() + 1){
+                    if(state == 1 || (state == 2 && app != null)){
+                        setAsPrimary(view);
+                    }
                 }
             }else if(this.address().equals(view.backup())){
                 setAsBackup(view);
@@ -83,22 +84,19 @@ class PBServer extends Node {
 
     // Your code here...
 
-    private void handleForwardRequest(ForwardRequest f, Address sender)
-            throws InterruptedException {
+    private void handleForwardRequest(ForwardRequest f, Address sender) {
         if(state == 2 && sender.equals(currentView.primary())){
-            while(app == null){
-                wait();
+            if(app != null) {
+                AMOResult r = app.execute(f.command());
+                send(new ForwardReply(r), sender);
             }
-            AMOResult r = app.execute(f.command());
-            send(new ForwardReply(r), sender);
         }
     }
 
     private void handleForwardReply(ForwardReply f, Address sender){
         if(state == 1 && sender.equals(currentView.backup())){
-            if(f.result().sequenceNum() == forwardRequest.command().sequenceNum()){
+            if(forwardRequest != null && f.result().sequenceNum() == forwardRequest.command().sequenceNum()){
                 forwardReply = f;
-                notify();
             }
         }
     }
@@ -115,7 +113,6 @@ class PBServer extends Node {
     private void handleAppReply(AppReply r, Address sender){
         if(state == 2 && sender.equals(currentView.primary())){
             app = r.app();
-            notify();
         }
     }
     /* -------------------------------------------------------------------------
@@ -130,19 +127,19 @@ class PBServer extends Node {
 
     // Your code here...
     private void onForwardTimer(ForwardTimer t){
-        if(t.command().equals(forwardRequest.command()) && forwardReply == null){
+        if(forwardRequest != null && t.command().equals(forwardRequest.command()) && forwardReply == null){
             send(new GetView(), viewServer);
             send(forwardRequest, currentView.backup());
+            set(t,FORWARD_MILLIS);
         }
-        set(t,FORWARD_MILLIS);
     }
 
     private void onRequestAppTimer(RequestAppTimer t){
         if(t.request().viewNum() == currentView.viewNum()){
             send(new GetView(), viewServer);
             send(t.request(), currentView.primary());
+            set(t, REQUESTAPP_MILLIS);
         }
-        set(t, REQUESTAPP_MILLIS);
     }
     /* -------------------------------------------------------------------------
         Utils
