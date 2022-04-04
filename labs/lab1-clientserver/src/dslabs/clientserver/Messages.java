@@ -2,9 +2,8 @@ package dslabs.clientserver;
 
 import dslabs.atmostonce.AMOCommand;
 import dslabs.atmostonce.AMOResult;
-import dslabs.framework.Command;
+
 import dslabs.framework.Message;
-import dslabs.framework.Result;
 import lombok.Data;
 
 @Data
