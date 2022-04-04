@@ -1,6 +1,7 @@
 package dslabs.primarybackup;
 
 import com.google.common.base.Objects;
+import dslabs.atmostonce.AMOCommand;
 import dslabs.framework.Address;
 import dslabs.framework.Client;
 import dslabs.framework.Command;
