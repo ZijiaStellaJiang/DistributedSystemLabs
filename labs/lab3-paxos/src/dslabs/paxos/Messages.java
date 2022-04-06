@@ -1,3 +1,2 @@
 package dslabs.paxos;
 
-// Your code here...

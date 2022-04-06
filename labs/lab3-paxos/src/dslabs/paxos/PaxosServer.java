@@ -4,6 +4,7 @@ import dslabs.framework.Address;
 import dslabs.framework.Application;
 import dslabs.framework.Command;
 import dslabs.framework.Node;
+import java.util.TreeMap;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
@@ -15,6 +16,8 @@ public class PaxosServer extends Node {
     private final Address[] servers;
 
     // Your code here...
+    private final AMOApplication<Application> app;
+    private final TreeMap<Long, AMOCommand> log;
 
     /* -------------------------------------------------------------------------
         Construction and Initialization
@@ -24,6 +27,8 @@ public class PaxosServer extends Node {
         this.servers = servers;
 
         // Your code here...
+        this.app = new AMOApplication<>(app);
+        this.log = new TreeMap<>();
     }
 
 
