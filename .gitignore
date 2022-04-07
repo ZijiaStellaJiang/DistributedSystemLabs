@@ -10,6 +10,7 @@ build
 .idea/tasks.xml
 .idea-out
 .idea/modules/
+.idea/Distributed Systems Labs.iml
 
 
 # Common OS/Editor files
@@ -25,3 +26,6 @@ Desktop.ini
 
 # analytics
 .usage-database.db
+
+# .iml file
+*.iml
