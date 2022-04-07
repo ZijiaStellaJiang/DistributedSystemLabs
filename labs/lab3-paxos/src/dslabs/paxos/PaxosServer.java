@@ -64,11 +64,7 @@ public class PaxosServer extends Node {
     public void init() {
         // Your code here...
         // broadcast heartbeat to all other servers
-        for (Address server : servers) {
-            if (!this.address().equals(server)) {
-                send(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex), server);
-            }
-        }
+        broadcastHeartbeat();
         set(new HeartbeatTimer(), HEARTBEAT_MILLIS);
     }
 
@@ -241,6 +237,7 @@ public class PaxosServer extends Node {
        -----------------------------------------------------------------------*/
     // Your code here...
     private void onHeartbeatTimer(HeartbeatTimer t) {
+        // update server data: leader, voters
         // if leader is not active
         if (!this.isLeaderAlive) {
             // reset leader info in state
@@ -257,6 +254,18 @@ public class PaxosServer extends Node {
         // minority is active, so the 5-server group will not have a leader. So it is necessary to clear last T period's record
         // => not in leader election: operation on this.myVoters doesn't harm
         this.myVoters.clear();
+        // same to voteID
+        this.voteID = this.serverID;
+
+        // if in leader-election mode, server broadcasts its heartbeat
+        if (this.leaderAddress == null) {
+            broadcastHeartbeat();
+        }
+        // else, in leader-follower mode, only leader broadcasts its heartbeat and followers only send heartbeat to leader
+        else {
+            send(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex), leaderAddress);
+        }
+        set(t, HEARTBEAT_MILLIS);
     }
 
     /* -------------------------------------------------------------------------
@@ -303,7 +312,6 @@ public class PaxosServer extends Node {
      * case2. find it has become a new leader: get quorum vote
      */
     private void leaderElection(Heartbeat hb, Address sender) {
-        // terminal conditions
         int voteID = hb.voteID();
 
         if (voteID > this.serverID) {
@@ -321,6 +329,14 @@ public class PaxosServer extends Node {
             this.leaderID = this.serverID;
         }
 
+    }
+
+    private void broadcastHeartbeat() {
+        for (Address server : servers) {
+            if (!this.address().equals(server)) {
+                send(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex), server);
+            }
+        }
     }
 
     private void leaderSyncWithFollower() {
