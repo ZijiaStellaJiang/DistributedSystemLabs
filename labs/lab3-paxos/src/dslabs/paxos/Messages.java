@@ -24,13 +24,14 @@ class Reply implements Message {
 
 /* -------------------------------------------------------------------------
     Heartbeat Messages
-    - usage1: leader election (roundNum, senderID)
+    - usage1: leader election (roundNum, voteID)
     - usage2: communicate between leader and followers (to validate leader aliveness, firstUnchosenIndex)
    -----------------------------------------------------------------------*/
 @Data
 class Heartbeat implements Message {
     private final int roundNum;
     private final int senderID;
+    private final int voteID;
     private final int firstUnchosenIndex;
 }
 

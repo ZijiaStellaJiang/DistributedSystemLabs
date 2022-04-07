@@ -34,7 +34,8 @@ public class PaxosServer extends Node {
     private Address leaderAddress;
     private int leaderID;
     private boolean isLeaderAlive;
-    private Set<Integer> smallerServerIDs;
+    private Set<Address> myVoters;
+    private int voteID;
 
     /* -------------------------------------------------------------------------
         Construction and Initialization
@@ -54,17 +55,18 @@ public class PaxosServer extends Node {
         this.leaderAddress = null;
         this.leaderID = -1;
         this.isLeaderAlive = false;
-        this.smallerServerIDs = new HashSet<>();
+        this.myVoters = new HashSet<>();
+        this.voteID = this.serverID;
     }
 
 
     @Override
     public void init() {
         // Your code here...
-        // broadcase heartbeat to all other servers
+        // broadcast heartbeat to all other servers
         for (Address server : servers) {
             if (!this.address().equals(server)) {
-                send(new Heartbeat(this.roundNum, this.serverID, this.firstUnchosenIndex), server);
+                send(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex), server);
             }
         }
         set(new HeartbeatTimer(), HEARTBEAT_MILLIS);
@@ -209,7 +211,7 @@ public class PaxosServer extends Node {
         // message with the same RoundNum as the receiver
         // If the receiver is in leader-election mode
         if (this.leaderAddress == null) {
-            leaderElection(hb);
+            leaderElection(hb, sender);
             return;
         }
 
@@ -253,8 +255,8 @@ public class PaxosServer extends Node {
         // clear last T period leader election data
         // => in a 5-server leader election: consider case in (T-1) period, 1, 2, 3, 4, 5 are active; but in T period, only 1, 2 are active, then because only
         // minority is active, so the 5-server group will not have a leader. So it is necessary to clear last T period's record
-        // => not in leader election: operation on this.smallerServerIDs doesn't harm
-        this.smallerServerIDs.clear();
+        // => not in leader election: operation on this.myVoters doesn't harm
+        this.myVoters.clear();
     }
 
     /* -------------------------------------------------------------------------
@@ -287,22 +289,33 @@ public class PaxosServer extends Node {
      *  before reaching terminal condition, each server broadcasts its heartbeat Message
      *
      * terminal condition:
-     * 1. this server hears higher RoundNumber
-     *      --> step down as acceptor (a higher RoundNumber means a new leader has been elected and the new leader updated RoundNum)
+     * 1. this server (followers) hears higher RoundNumber
+     *      --> steps down as acceptor (a higher RoundNumber means a new leader has been elected and the new leader updated RoundNum)
+     *          and votes to the voteID it has heard, vote is indicated by serverID
      *      --> keep broadcast its heartbeat until hearing from the leader: the sender of (curRoundNum+1) heartbeat is the leader
-     * 2. this server has gotten a quorum of different smaller serverIDs
+     * 2. this server (new leader) has gotten a quorum of different voters who vote it
      *      --> step up as leader
      *      --> update curRoundNum++, broadcast HeartBeat Message
+     *
+     *
+     * Here we only need to consider terminal condition 2, as terminal condition 1 has already handled in handleHeartbeat
+     * case1. find it will not be a leader: hear a voteID > itsID, so go to vote for the highestID
+     * case2. find it has become a new leader: get quorum vote
      */
-    private void leaderElection(Heartbeat hb) {
+    private void leaderElection(Heartbeat hb, Address sender) {
         // terminal conditions
-        int senderID = hb.senderID();
-        // terminal condition 1: this server hears higher RoundNumber --> which has handled in handleHeartbeat, so here we focus on terminal condition 2
-        // terminal condition 2: this server has gotten a quorum of different smaller serverIDs
-        if (senderID < this.serverID) {
-            this.smallerServerIDs.add(senderID);
+        int voteID = hb.voteID();
+
+        if (voteID > this.serverID) {
+            this.voteID = Math.max(this.voteID, voteID);
+            return;
         }
-        if (this.smallerServerIDs.size() + 1 >= this.quorum) { // +1 means this server votes itself to be leader
+
+        // terminal condition 2: this server has gotten a quorum of different voters who vote it
+        if (voteID == this.serverID) {
+            this.myVoters.add(sender);
+        }
+        if (this.myVoters.size() + 1 >= this.quorum) { // +1 means this server votes itself to be leader
             this.roundNum = this.roundNum + 1;
             this.leaderAddress = this.address();
             this.leaderID = this.serverID;
