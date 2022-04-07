@@ -61,7 +61,12 @@ public class PaxosServer extends Node {
     @Override
     public void init() {
         // Your code here...
-        send(new Heartbeat(this.roundNum, this.serverID, this.firstUnchosenIndex), this.address());
+        // broadcase heartbeat to all other servers
+        for (Address server : servers) {
+            if (!this.address().equals(server)) {
+                send(new Heartbeat(this.roundNum, this.serverID, this.firstUnchosenIndex), server);
+            }
+        }
         set(new HeartbeatTimer(), HEARTBEAT_MILLIS);
     }
 
@@ -273,6 +278,7 @@ public class PaxosServer extends Node {
         }
         return serverID;
     }
+
 
     /**
      * start leader election & set leaderID and leaderAddress in state
