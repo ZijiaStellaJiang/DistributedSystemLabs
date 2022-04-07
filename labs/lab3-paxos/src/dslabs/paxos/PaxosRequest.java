@@ -6,5 +6,5 @@ import lombok.Data;
 @Data
 public final class PaxosRequest implements Message {
     // Your code here...
-    public final AMOCommand command;
+    public final AMOCommand amoCommand;
 }

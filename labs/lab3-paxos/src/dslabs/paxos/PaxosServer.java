@@ -20,6 +20,8 @@ public class PaxosServer extends Node {
     // Your code here...
     private final AMOApplication<Application> app;
     private final Map<Integer, PaxosLogSlot> log;
+    private final Map<AMOCommand, Integer> commandSlotNumMap;
+    private final Map<AMOCommand, AMOResult> commandResultMap;
     private final int serverId;
     private int round;
     private Address leaderAddress;
@@ -39,6 +41,8 @@ public class PaxosServer extends Node {
         // Your code here...
         this.app = new AMOApplication<>(app);
         this.log = new HashMap<>();
+        this.commandSlotNumMap = new HashMap<>();
+        this.commandResultMap = new HashMap<>();
         this.firstNonCleared = 1;
         this.lastNonEmpty = 0;
         this.state = 0;
@@ -159,11 +163,15 @@ public class PaxosServer extends Node {
        -----------------------------------------------------------------------*/
     private void handlePaxosRequest(PaxosRequest m, Address sender) {
         // Your code here...
-        int seqNum = m.command().sequenceNum();
-
-        if (state == 0) {
-            send(new ForwardRequest(m.command()),leaderAddress);
-        }else if (state == 1) {
+        AMOCommand amoCommand = m.amoCommand();
+        if (hasResult(amoCommand)) {
+            // 如果已经有结果,直接返回结果
+            send(new PaxosReply(commandResultMap.get(amoCommand)), sender);
+        } else if (state == 0) {
+            // 如果没有结果且本机不是leader, 转发给leader决定
+            send(new ForwardRequest(m.amoCommand()),leaderAddress);
+        } else if (state == 1) {
+            // 如果没有分配过slot, 那就检查firstNonCleared开始 第一个空值
 
         }
     }
@@ -202,4 +210,9 @@ public class PaxosServer extends Node {
         }
         return -1;
     }
+
+    private boolean hasResult(AMOCommand amoCommand){
+        return commandResultMap.getOrDefault(amoCommand, null) != null;
+    }
+
 }
