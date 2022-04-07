@@ -237,15 +237,32 @@ public class PaxosServer extends Node {
        -----------------------------------------------------------------------*/
     // Your code here...
     private void onHeartbeatTimer(HeartbeatTimer t) {
-        // update server data: leader, voters
-        // if leader is not active
-        if (!this.isLeaderAlive) {
-            // reset leader info in state
-            this.leaderAddress = null;
-            this.leaderID = -1;
+        // if in election mode, server broadcasts its heartbeat
+        if (this.leaderAddress == null) {
+            broadcastHeartbeat();
+        }
 
-        } else {
-
+        // else in leader-follower mode
+        else {
+            // if leader is not active, reset leader info and go to election mode
+            if (!this.isLeaderAlive) {
+                // reset leader info in state
+                this.leaderAddress = null;
+                this.leaderID = -1;
+                broadcastHeartbeat();
+            }
+            // else the leader is active, keep in leader-follower mode:
+            // only leader broadcasts its heartbeat and followers only send heartbeat to leader
+            else {
+                // if leader, then broadcast heartbeat
+                if (this.address().equals(leaderAddress)) {
+                    broadcastHeartbeat();
+                }
+                // else follower, only send heartbeat to leader
+                else {
+                    send(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex), leaderAddress);
+                }
+            }
         }
 
         this.isLeaderAlive = false;
@@ -257,15 +274,8 @@ public class PaxosServer extends Node {
         // same to voteID
         this.voteID = this.serverID;
 
-        // if in leader-election mode, server broadcasts its heartbeat
-        if (this.leaderAddress == null) {
-            broadcastHeartbeat();
-        }
-        // else, in leader-follower mode, only leader broadcasts its heartbeat and followers only send heartbeat to leader
-        else {
-            send(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex), leaderAddress);
-        }
         set(t, HEARTBEAT_MILLIS);
+
     }
 
     /* -------------------------------------------------------------------------
