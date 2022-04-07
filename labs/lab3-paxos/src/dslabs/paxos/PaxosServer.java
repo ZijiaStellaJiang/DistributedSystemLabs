@@ -3,8 +3,10 @@ package dslabs.paxos;
 import dslabs.framework.Address;
 import dslabs.framework.Application;
 import dslabs.framework.Command;
+import dslabs.framework.Message;
 import dslabs.framework.Node;
-import java.util.TreeMap;
+import java.util.HashMap;
+import java.util.Map;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
@@ -17,7 +19,15 @@ public class PaxosServer extends Node {
 
     // Your code here...
     private final AMOApplication<Application> app;
-    private final TreeMap<Long, AMOCommand> log;
+    private final Map<Integer, PaxosLogSlot> log;
+    private final int serverId;
+    private int round;
+    private Address leaderAddress;
+    private int quorum;
+    private int firstNonCleared;
+    private int lastNonEmpty;
+    private int state;
+    //0: follower, 1: leader
 
     /* -------------------------------------------------------------------------
         Construction and Initialization
@@ -28,13 +38,28 @@ public class PaxosServer extends Node {
 
         // Your code here...
         this.app = new AMOApplication<>(app);
-        this.log = new TreeMap<>();
+        this.log = new HashMap<>();
+        this.firstNonCleared = 1;
+        this.lastNonEmpty = 0;
+        this.state = 0;
+        this.quorum = servers.length / 2 + 1;
+
+        this.serverId = findServerId();
+
+        // temporarily make the last one to be the leader,
+        // leader election remains to be implemented
+        this.round = 0;
+        this.leaderAddress = servers[servers.length - 1];
+        if (address.equals(servers[servers.length-1])){
+            this.state = 1;
+        }
     }
 
 
     @Override
     public void init() {
         // Your code here...
+
     }
 
     /* -------------------------------------------------------------------------
@@ -62,6 +87,11 @@ public class PaxosServer extends Node {
      */
     public PaxosLogSlotStatus status(int logSlotNum) {
         // Your code here...
+        if (log.containsKey(logSlotNum)){
+            return log.get(logSlotNum).status();
+        }else if(firstNonCleared > logSlotNum){
+            return PaxosLogSlotStatus.CLEARED;
+        }
         return null;
     }
 
@@ -86,7 +116,9 @@ public class PaxosServer extends Node {
      * @see PaxosLogSlotStatus
      */
     public Command command(int logSlotNum) {
-        // Your code here...
+        if (log.containsKey(logSlotNum)){
+            return log.get(logSlotNum).amoCommand().command();
+        }
         return null;
     }
 
@@ -103,7 +135,7 @@ public class PaxosServer extends Node {
      */
     public int firstNonCleared() {
         // Your code here...
-        return 1;
+        return firstNonCleared;
     }
 
     /**
@@ -119,7 +151,7 @@ public class PaxosServer extends Node {
      */
     public int lastNonEmpty() {
         // Your code here...
-        return 0;
+        return lastNonEmpty;
     }
 
     /* -------------------------------------------------------------------------
@@ -127,10 +159,23 @@ public class PaxosServer extends Node {
        -----------------------------------------------------------------------*/
     private void handlePaxosRequest(PaxosRequest m, Address sender) {
         // Your code here...
+        int seqNum = m.command().sequenceNum();
+
+        if (state == 0) {
+            send(new ForwardRequest(m.command()),leaderAddress);
+        }else if (state == 1) {
+
+        }
     }
 
     // Your code here...
 
+    private void handleForwardRequest(ForwardRequest fr, Address sender) {
+        // Your code here...
+        if (state == 1) {
+
+        }
+    }
 
     /* -------------------------------------------------------------------------
         Timer Handlers
@@ -141,4 +186,20 @@ public class PaxosServer extends Node {
         Utils
        -----------------------------------------------------------------------*/
     // Your code here...
+    private void broadcast(Message m){
+        for(Address paxosServer : servers){
+            if(!paxosServer.equals(this.address())){
+                send(m, paxosServer);
+            }
+        }
+    }
+
+    private int findServerId(){
+        for(int i = 0;i<servers.length;i++){
+            if(servers[i].equals(this.address())){
+                return i;
+            }
+        }
+        return -1;
+    }
 }
