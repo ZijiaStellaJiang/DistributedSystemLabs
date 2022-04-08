@@ -6,6 +6,7 @@ import dslabs.atmostonce.AMOResult;
 import dslabs.framework.Address;
 import dslabs.framework.Application;
 import dslabs.framework.Command;
+import dslabs.framework.Message;
 import dslabs.framework.Node;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -15,6 +16,9 @@ import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
 import static dslabs.paxos.HeartbeatTimer.HEARTBEAT_MILLIS;
+import static dslabs.paxos.PaxosLogSlotStatus.ACCEPTED;
+import static dslabs.paxos.PaxosLogSlotStatus.CHOSEN;
+import static dslabs.paxos.PaxosLogSlotStatus.EMPTY;
 
 
 @ToString(callSuper = true)
@@ -28,6 +32,7 @@ public class PaxosServer extends Node {
     private int curSlotNum;
     private int firstUnchosenIndex;
     private Map<Integer, Log> log;
+    private Map<Address, Integer> server_FirstUnchosenIndex;
     /* note: a Proposal Number = RoundNum + ServerID */
     /* current Round Number of this server */
     private int roundNum;
@@ -40,6 +45,8 @@ public class PaxosServer extends Node {
     private int voteID;
     private int gcPointer;
     private int toExecuteIndex;
+    private ProposerRequest proposerRequest;
+    private Set<Address> proposalRepliers;
 
     /* -------------------------------------------------------------------------
         Construction and Initialization
@@ -54,6 +61,7 @@ public class PaxosServer extends Node {
         this.curSlotNum = 1;
         this.firstUnchosenIndex = 1;
         this.log = new HashMap<>();
+        this.server_FirstUnchosenIndex = new HashMap<>();
         this.roundNum = 0;
         this.serverID = generateServerID(address, servers);
         this.leaderAddress = null;
@@ -63,6 +71,8 @@ public class PaxosServer extends Node {
         this.voteID = this.serverID;
         this.gcPointer = 0;
         this.toExecuteIndex = 0;
+        this.proposerRequest = null;
+        this.proposalRepliers = new HashSet<>();
     }
 
 
@@ -70,7 +80,7 @@ public class PaxosServer extends Node {
     public void init() {
         // Your code here...
         // broadcast heartbeat to all other servers
-        broadcastHeartbeat();
+        broadcast(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex));
         set(new HeartbeatTimer(), HEARTBEAT_MILLIS);
     }
 
@@ -176,26 +186,16 @@ public class PaxosServer extends Node {
             send(new PaxosReply(r), sender);
             return;
         }
-        // otherwise, there are three cases, in all the three cases the server will not reply the client
-        // 1. the command has been in non-executed log: the command will be executed eventually either its current status is ACCEPTED or CHOSEN as long as the
-        // distributed system has majority server alive to make progress
-        // in case 1: the leader doesn't do anything towards the in-log request; we just wait the in-log command be executed as time goes by
-        //
-        // the other two cases cannot guarantee this command will be executed eventually (because this servers can fails):
-        // 2. the server is 1st time receive this command
-        // in case 2: the leader is going to launch 2-phase proposal for the command; but consider a 2-phase proposal possible is in process, so we need to save the command
-        //            to a to-do-set
-        // 3. the server is >= 2nd time receive this command, it has launched the 2-phase proposal, now the 2-phase is in process;
-        // in case 3: the leader doesn't do anything towards the >= 2nd received request; we just wait the 2-phase to be done.
-        // this is the 1st time the leader receives this client's request, leader should start 2-phase proposal
 
-        // if it's case 1 or case 3, the server will do nothing towards the multi-time received command
-        // only in case 2, the server need to register the command and then start 2-phase proposal
-        if (!isInLogToExecute(command) || !hasRegisteredFor2Phase(command)) {
-
+        // two cases:
+        // 1. the command has been in non-executed log -> don't reply client, the command in log will be later executed
+        // 2. otherwise -> if leader is proposing now, ignore; else leader launch a proposal
+        if (!isInLogToExecute(command) && this.proposerRequest == null) {
+            int slotNum = this.firstUnchosenIndex;
+            Command localAcceptedCommand = command(slotNum);
+            this.proposerRequest = new ProposerRequest(new ProposalNum(roundNum, this.serverID), slotNum, localAcceptedCommand, command);
+            broadcast(this.proposerRequest);
         }
-
-
     }
 
     // Your code here...
@@ -269,6 +269,74 @@ public class PaxosServer extends Node {
 
     }
 
+   private void handleProposerRequest(ProposerRequest pReq, Address sender) {
+        // only process proposal from leader in this round && should be in the same round
+       if (sender.equals(this.leaderAddress)
+               && pReq.proposalNum().roundNum == this.roundNum
+               && pReq.proposalNum().ServerID == this.leaderID) {
+
+           // if pReq.localAcceptedCommand is not null, then acceptor can accept this localAcceptedCommand
+           if (pReq.localAcceptedCommand() != null) {
+               setLogInPosition(pReq.slotNum(), pReq.localAcceptedCommand(), ACCEPTED);
+               AcceptorReply aReply = new AcceptorReply(new ProposalNum(roundNum, this.leaderID), pReq.slotNum(), true, pReq.localAcceptedCommand());
+               send(aReply, sender);
+           }
+
+           // else check if it has already accepted command in this slotNum
+           else {
+               PaxosLogSlotStatus status = status(pReq.slotNum());
+               if (ACCEPTED.equals(status)) {
+                   Command acceptedCommand = command(pReq.slotNum());
+                   AcceptorReply aReply = new AcceptorReply(new ProposalNum(roundNum, this.leaderID), pReq.slotNum(), false, acceptedCommand);
+                   send(aReply, sender);
+               }
+               else if (EMPTY.equals(status)) {
+                   AcceptorReply aReply = new AcceptorReply(new ProposalNum(roundNum, this.leaderID), pReq.slotNum(), true, null);
+                   send(aReply, sender);
+               }
+           }
+       }
+   }
+
+   private void handleAcceptorReply(AcceptorReply aReply, Address sender) {
+        // make sure I am the leader in this round and I only process aReply with the same slotNum
+        if (this.address().equals(leaderAddress)
+                && aReply.proposalNum().roundNum == this.roundNum
+                && aReply.proposalNum().ServerID == this.serverID) {
+
+            // once find an accepted command, I need to change my command to the already accepted command
+            Command alreadyAcceptedFromFollowers = null;
+            if (!aReply.acceptProposal()) {
+                alreadyAcceptedFromFollowers = aReply.alreadyAcceptedCommand();
+            }
+            // update received aReply
+            proposalRepliers.add(sender);
+
+            // check if reach quorum
+            if (proposalRepliers.size() + 1 >= quorum) {
+                if (alreadyAcceptedFromFollowers != null) {
+                    // I need to accept the alreadyAcceeptedCommand locally updating this.proposerRequest, and then use the new this.proposerRequest to broadcast
+                    this.proposerRequest = new ProposerRequest(new ProposalNum(roundNum, this.serverID), this.proposerRequest.slotNum(), alreadyAcceptedFromFollowers, this.proposerRequest.clientCommand());
+                    broadcast(this.proposerRequest);
+                }
+                else {
+                    if (this.proposerRequest.localAcceptedCommand() != null) {
+                        // done. I can update the slot status to chosen, and execute it
+                        setLogInPosition(this.proposerRequest.slotNum(), this.proposerRequest.localAcceptedCommand(), CHOSEN);
+                        app.execute(this.proposerRequest.localAcceptedCommand());
+                        this.proposerRequest = null;
+                    }
+                    else {
+                        // set clientCommand as localAcceptedCommand, and do phase-2 broadcast
+                        this.proposerRequest = new ProposerRequest(new ProposalNum(roundNum, this.serverID), this.proposerRequest.slotNum(), this.proposerRequest.clientCommand(), null);
+                        broadcast(this.proposerRequest);
+                    }
+                }
+            }
+
+        }
+   }
+
 
     /* -------------------------------------------------------------------------
         Timer Handlers
@@ -277,7 +345,7 @@ public class PaxosServer extends Node {
     private void onHeartbeatTimer(HeartbeatTimer t) {
         // if in election mode, server broadcasts its heartbeat
         if (this.leaderAddress == null) {
-            broadcastHeartbeat();
+            broadcast(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex));
         }
 
         // else in leader-follower mode
@@ -287,14 +355,14 @@ public class PaxosServer extends Node {
                 // reset leader info in state
                 this.leaderAddress = null;
                 this.leaderID = -1;
-                broadcastHeartbeat();
+                broadcast(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex));
             }
             // else the leader is active, keep in leader-follower mode:
             // only leader broadcasts its heartbeat and followers only send heartbeat to leader
             else {
                 // if leader, then broadcast heartbeat
                 if (this.address().equals(leaderAddress)) {
-                    broadcastHeartbeat();
+                    broadcast(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex));
                 }
                 // else follower, only send heartbeat to leader
                 else {
@@ -379,10 +447,10 @@ public class PaxosServer extends Node {
 
     }
 
-    private void broadcastHeartbeat() {
+    private void broadcast(Message m) {
         for (Address server : servers) {
             if (!this.address().equals(server)) {
-                send(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex), server);
+                send(m, server);
             }
         }
     }
@@ -402,5 +470,10 @@ public class PaxosServer extends Node {
     private void followerSyncWithLeader() {
 
     }
+
+    private void setLogInPosition(int slotNum, Command command, PaxosLogSlotStatus status) {
+
+    }
+
 
 }

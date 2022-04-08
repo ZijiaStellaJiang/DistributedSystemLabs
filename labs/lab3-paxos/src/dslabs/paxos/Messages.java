@@ -6,6 +6,7 @@ import dslabs.atmostonce.AMOCommand;
 import dslabs.atmostonce.AMOResult;
 import dslabs.framework.Address;
 import dslabs.framework.Application;
+import dslabs.framework.Command;
 import dslabs.framework.Message;
 import lombok.Data;
 
@@ -36,11 +37,25 @@ class Heartbeat implements Message {
 }
 
 /* -------------------------------------------------------------------------
-    Servers Prepare Messages
+    Proposal Messages
    -----------------------------------------------------------------------*/
+@Data
+class ProposerRequest implements Message {
+    private final ProposalNum proposalNum;
+    private final int slotNum;
+    private final Command localAcceptedCommand;
+    private final Command clientCommand;
+}
 
+@Data
+class AcceptorReply implements Message {
+    private final ProposalNum proposalNum;
+    private final int slotNum;
+    private final boolean acceptProposal;
+    private final Command alreadyAcceptedCommand;
 
+}
 
 /* -------------------------------------------------------------------------
-    Servers P2A Messages
+
    -----------------------------------------------------------------------*/
