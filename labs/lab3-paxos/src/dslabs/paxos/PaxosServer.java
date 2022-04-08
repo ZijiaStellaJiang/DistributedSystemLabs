@@ -8,6 +8,7 @@ import dslabs.framework.Application;
 import dslabs.framework.Command;
 import dslabs.framework.Message;
 import dslabs.framework.Node;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -18,6 +19,7 @@ import lombok.ToString;
 import static dslabs.paxos.HeartbeatTimer.HEARTBEAT_MILLIS;
 import static dslabs.paxos.PaxosLogSlotStatus.ACCEPTED;
 import static dslabs.paxos.PaxosLogSlotStatus.CHOSEN;
+import static dslabs.paxos.PaxosLogSlotStatus.CLEARED;
 import static dslabs.paxos.PaxosLogSlotStatus.EMPTY;
 
 
@@ -43,8 +45,8 @@ public class PaxosServer extends Node {
     private boolean isLeaderAlive;
     private Set<Address> myVoters;
     private int voteID;
+    /* gcPointer points to the first unGced log slotNum*/
     private int gcPointer;
-    private int toExecuteIndex;
     private ProposerRequest proposerRequest;
     private Set<Address> proposalRepliers;
 
@@ -69,8 +71,7 @@ public class PaxosServer extends Node {
         this.isLeaderAlive = false;
         this.myVoters = new HashSet<>();
         this.voteID = this.serverID;
-        this.gcPointer = 0;
-        this.toExecuteIndex = 0;
+        this.gcPointer = 1;
         this.proposerRequest = null;
         this.proposalRepliers = new HashSet<>();
     }
@@ -109,7 +110,11 @@ public class PaxosServer extends Node {
      */
     public PaxosLogSlotStatus status(int logSlotNum) {
         // Your code here...
-        return null;
+        Log consultResult = log.get(logSlotNum);
+        if (consultResult != null) return consultResult.status;
+        else {
+            return logSlotNum < firstUnchosenIndex? CLEARED : EMPTY;
+        }
     }
 
     /**
@@ -134,7 +139,15 @@ public class PaxosServer extends Node {
      */
     public Command command(int logSlotNum) {
         // Your code here...
-        return null;
+        AMOCommand amoCommand = getLogAMOCommand(logSlotNum);
+        if (amoCommand == null) return null;
+        return amoCommand.command();
+    }
+
+    public AMOCommand getLogAMOCommand(int logSlotNum) {
+        Log consultResult = log.get(logSlotNum);
+        if (consultResult == null) return null;
+        return consultResult.command;
     }
 
     /**
@@ -150,7 +163,7 @@ public class PaxosServer extends Node {
      */
     public int firstNonCleared() {
         // Your code here...
-        return 1;
+        return gcPointer;
     }
 
     /**
@@ -166,6 +179,14 @@ public class PaxosServer extends Node {
      */
     public int lastNonEmpty() {
         // Your code here...
+        int logSize = log.size();
+        if (logSize > 0) {
+            Set<Integer> curSlotNums = log.keySet();
+            int maxSlotNum = Collections.max(curSlotNums);
+            for (int i = maxSlotNum; i >= gcPointer; i--) {
+                if (log.get(i) == null) return i+1;
+            }
+        }
         return 0;
     }
 
@@ -192,7 +213,7 @@ public class PaxosServer extends Node {
         // 2. otherwise -> if leader is proposing now, ignore; else leader launch a proposal
         if (!isInLogToExecute(command) && this.proposerRequest == null) {
             int slotNum = this.firstUnchosenIndex;
-            Command localAcceptedCommand = command(slotNum);
+            AMOCommand localAcceptedCommand = getLogAMOCommand(slotNum);
             this.proposerRequest = new ProposerRequest(new ProposalNum(roundNum, this.serverID), slotNum, localAcceptedCommand, command);
             broadcast(this.proposerRequest);
         }
@@ -277,7 +298,7 @@ public class PaxosServer extends Node {
 
            // if pReq.localAcceptedCommand is not null, then acceptor can accept this localAcceptedCommand
            if (pReq.localAcceptedCommand() != null) {
-               setLogInPosition(pReq.slotNum(), pReq.localAcceptedCommand(), ACCEPTED);
+               setLogInPosition(pReq, ACCEPTED);
                AcceptorReply aReply = new AcceptorReply(new ProposalNum(roundNum, this.leaderID), pReq.slotNum(), true, pReq.localAcceptedCommand());
                send(aReply, sender);
            }
@@ -286,7 +307,7 @@ public class PaxosServer extends Node {
            else {
                PaxosLogSlotStatus status = status(pReq.slotNum());
                if (ACCEPTED.equals(status)) {
-                   Command acceptedCommand = command(pReq.slotNum());
+                   AMOCommand acceptedCommand = getLogAMOCommand(pReq.slotNum());
                    AcceptorReply aReply = new AcceptorReply(new ProposalNum(roundNum, this.leaderID), pReq.slotNum(), false, acceptedCommand);
                    send(aReply, sender);
                }
@@ -305,7 +326,7 @@ public class PaxosServer extends Node {
                 && aReply.proposalNum().ServerID == this.serverID) {
 
             // once find an accepted command, I need to change my command to the already accepted command
-            Command alreadyAcceptedFromFollowers = null;
+            AMOCommand alreadyAcceptedFromFollowers = null;
             if (!aReply.acceptProposal()) {
                 alreadyAcceptedFromFollowers = aReply.alreadyAcceptedCommand();
             }
@@ -322,7 +343,7 @@ public class PaxosServer extends Node {
                 else {
                     if (this.proposerRequest.localAcceptedCommand() != null) {
                         // done. I can update the slot status to chosen, and execute it
-                        setLogInPosition(this.proposerRequest.slotNum(), this.proposerRequest.localAcceptedCommand(), CHOSEN);
+                        setLogInPosition(this.proposerRequest, CHOSEN);
                         app.execute(this.proposerRequest.localAcceptedCommand());
                         this.proposerRequest = null;
                     }
@@ -455,11 +476,11 @@ public class PaxosServer extends Node {
         }
     }
 
-    private boolean isInLogToExecute(Command command) {
-        return false;
-    }
-
-    private boolean hasRegisteredFor2Phase(Command command) {
+    private boolean isInLogToExecute(AMOCommand command) {
+        for (Integer logNum : log.keySet()) {
+            AMOCommand logNumCommand = log.get(logNum).command;
+            if (command.equals(logNumCommand)) return true;
+        }
         return false;
     }
 
@@ -471,8 +492,9 @@ public class PaxosServer extends Node {
 
     }
 
-    private void setLogInPosition(int slotNum, Command command, PaxosLogSlotStatus status) {
-
+    private void setLogInPosition(ProposerRequest pReq, PaxosLogSlotStatus status) {
+        Log logInSlotNum = new Log(pReq.proposalNum(), pReq.slotNum(), status, pReq.localAcceptedCommand());
+        log.put(pReq.slotNum(), logInSlotNum);
     }
 
 

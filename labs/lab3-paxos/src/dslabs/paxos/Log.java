@@ -1,6 +1,6 @@
 package dslabs.paxos;
 
-import dslabs.framework.Command;
+import dslabs.atmostonce.AMOCommand;
 import lombok.AllArgsConstructor;
 
 @AllArgsConstructor
@@ -8,5 +8,5 @@ public class Log {
     public ProposalNum proposalNum;
     public int slotNum;
     public PaxosLogSlotStatus status;
-    public Command command;
+    public AMOCommand command;
 }
