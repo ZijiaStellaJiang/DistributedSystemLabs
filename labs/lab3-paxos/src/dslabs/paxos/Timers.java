@@ -18,3 +18,9 @@ final class ClientTimer implements Timer {
 final class HeartbeatTimer implements Timer {
     static final int HEARTBEAT_MILLIS = 25;
 }
+
+@Data
+final class ProposerTimer implements Timer {
+    static final int PROPOSER_RETRY_MILLIS = 50;
+    private final ProposerRequest pReq;
+}

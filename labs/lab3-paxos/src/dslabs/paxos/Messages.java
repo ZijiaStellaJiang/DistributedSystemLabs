@@ -3,7 +3,9 @@ package dslabs.paxos;
 // Your code here...
 import dslabs.atmostonce.AMOCommand;
 import dslabs.atmostonce.AMOResult;
+import dslabs.framework.Address;
 import dslabs.framework.Message;
+import java.util.Map;
 import lombok.Data;
 
 /* -------------------------------------------------------------------------
@@ -28,8 +30,11 @@ class Reply implements Message {
 class Heartbeat implements Message {
     private final int roundNum;
     private final int senderID;
+    private final Address senderAddress;
     private final int voteID;
     private final int firstUnchosenIndex;
+    private final Map<Address, Integer> server_FirstUnchosenIndex;
+    private final Map<Address, Log> server_LogForFirstUnchosenIndex;
 }
 
 /* -------------------------------------------------------------------------

@@ -21,6 +21,7 @@ import static dslabs.paxos.PaxosLogSlotStatus.ACCEPTED;
 import static dslabs.paxos.PaxosLogSlotStatus.CHOSEN;
 import static dslabs.paxos.PaxosLogSlotStatus.CLEARED;
 import static dslabs.paxos.PaxosLogSlotStatus.EMPTY;
+import static dslabs.paxos.ProposerTimer.PROPOSER_RETRY_MILLIS;
 
 
 @ToString(callSuper = true)
@@ -31,10 +32,10 @@ public class PaxosServer extends Node {
     // Your code here...
     private final int quorum;
     private AMOApplication<Application> app;
-    private int curSlotNum;
     private int firstUnchosenIndex;
     private Map<Integer, Log> log;
     private Map<Address, Integer> server_FirstUnchosenIndex;
+    private Map<Address, Log> server_LogForFirstUnchosenIndex;
     /* note: a Proposal Number = RoundNum + ServerID */
     /* current Round Number of this server */
     private int roundNum;
@@ -50,6 +51,7 @@ public class PaxosServer extends Node {
     private ProposerRequest proposerRequest;
     private Set<Address> proposalRepliers;
 
+
     /* -------------------------------------------------------------------------
         Construction and Initialization
        -----------------------------------------------------------------------*/
@@ -60,10 +62,10 @@ public class PaxosServer extends Node {
         // Your code here...
         this.quorum = servers.length / 2 + 1;
         this.app = new AMOApplication<>(app);
-        this.curSlotNum = 1;
         this.firstUnchosenIndex = 1;
         this.log = new HashMap<>();
         this.server_FirstUnchosenIndex = new HashMap<>();
+        this.server_LogForFirstUnchosenIndex = new HashMap<>();
         this.roundNum = 0;
         this.serverID = generateServerID(address, servers);
         this.leaderAddress = null;
@@ -81,7 +83,7 @@ public class PaxosServer extends Node {
     public void init() {
         // Your code here...
         // broadcast heartbeat to all other servers
-        broadcast(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex));
+        broadcast(new Heartbeat(this.roundNum, this.serverID, this.address(), this.voteID, this.firstUnchosenIndex, this.server_FirstUnchosenIndex, this.server_LogForFirstUnchosenIndex));
         set(new HeartbeatTimer(), HEARTBEAT_MILLIS);
     }
 
@@ -113,7 +115,7 @@ public class PaxosServer extends Node {
         Log consultResult = log.get(logSlotNum);
         if (consultResult != null) return consultResult.status;
         else {
-            return logSlotNum < firstUnchosenIndex? CLEARED : EMPTY;
+            return logSlotNum < gcPointer? CLEARED : EMPTY;
         }
     }
 
@@ -216,6 +218,7 @@ public class PaxosServer extends Node {
             AMOCommand localAcceptedCommand = getLogAMOCommand(slotNum);
             this.proposerRequest = new ProposerRequest(new ProposalNum(roundNum, this.serverID), slotNum, localAcceptedCommand, command);
             broadcast(this.proposerRequest);
+            set(new ProposerTimer(this.proposerRequest), PROPOSER_RETRY_MILLIS);
         }
     }
 
@@ -242,7 +245,7 @@ public class PaxosServer extends Node {
      * @param hb
      * @param sender
      */
-    private void handleHeartBeat(Heartbeat hb, Address sender) {
+    private void handleHeartbeat(Heartbeat hb, Address sender) {
 
         int senderRoundNum = hb.roundNum();
         int senderID = hb.senderID();
@@ -257,6 +260,10 @@ public class PaxosServer extends Node {
             this.roundNum = senderRoundNum;
             this.leaderAddress = sender;
             this.leaderID = senderID;
+            this.myVoters.clear();
+            this.voteID = this.serverID;
+            this.proposerRequest = null;
+            this.proposalRepliers.clear();
 
             // info will automatically synchronized with new leader as it is going to communicate with new leader via heartbeat
             // with the update state, this sever will send its heartbeat to new leader
@@ -277,14 +284,14 @@ public class PaxosServer extends Node {
                 // leader also need to update its status (it is itself leader)
                 this.isLeaderAlive = true;
                 // help follower update firstUnchosenIndex
-                leaderSyncWithFollower();
+                leaderSyncWithFollower(hb);
             }
 
             // case2: this server (i.e., receiver) is a follower, it will only process message from leader in this round's normal cases
             else {
                 // update leader alive status
                 this.isLeaderAlive = true;
-                followerSyncWithLeader();
+                followerSyncWithLeader(hb);
             }
         }
 
@@ -338,6 +345,7 @@ public class PaxosServer extends Node {
                 if (alreadyAcceptedFromFollowers != null) {
                     // I need to accept the alreadyAcceeptedCommand locally updating this.proposerRequest, and then use the new this.proposerRequest to broadcast
                     this.proposerRequest = new ProposerRequest(new ProposalNum(roundNum, this.serverID), this.proposerRequest.slotNum(), alreadyAcceptedFromFollowers, this.proposerRequest.clientCommand());
+                    this.proposalRepliers.clear();
                     broadcast(this.proposerRequest);
                 }
                 else {
@@ -345,11 +353,14 @@ public class PaxosServer extends Node {
                         // done. I can update the slot status to chosen, and execute it
                         setLogInPosition(this.proposerRequest, CHOSEN);
                         app.execute(this.proposerRequest.localAcceptedCommand());
+                        updateFirstUnchosenIndex();
                         this.proposerRequest = null;
+                        this.proposalRepliers.clear();
                     }
                     else {
                         // set clientCommand as localAcceptedCommand, and do phase-2 broadcast
                         this.proposerRequest = new ProposerRequest(new ProposalNum(roundNum, this.serverID), this.proposerRequest.slotNum(), this.proposerRequest.clientCommand(), null);
+                        this.proposalRepliers.clear();
                         broadcast(this.proposerRequest);
                     }
                 }
@@ -366,7 +377,7 @@ public class PaxosServer extends Node {
     private void onHeartbeatTimer(HeartbeatTimer t) {
         // if in election mode, server broadcasts its heartbeat
         if (this.leaderAddress == null) {
-            broadcast(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex));
+            broadcast(new Heartbeat(this.roundNum, this.serverID, this.address(), this.voteID, this.firstUnchosenIndex, this.server_FirstUnchosenIndex, this.server_LogForFirstUnchosenIndex));
         }
 
         // else in leader-follower mode
@@ -376,18 +387,18 @@ public class PaxosServer extends Node {
                 // reset leader info in state
                 this.leaderAddress = null;
                 this.leaderID = -1;
-                broadcast(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex));
+                broadcast(new Heartbeat(this.roundNum, this.serverID, this.address(), this.voteID, this.firstUnchosenIndex, this.server_FirstUnchosenIndex, this.server_LogForFirstUnchosenIndex));
             }
             // else the leader is active, keep in leader-follower mode:
             // only leader broadcasts its heartbeat and followers only send heartbeat to leader
             else {
                 // if leader, then broadcast heartbeat
                 if (this.address().equals(leaderAddress)) {
-                    broadcast(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex));
+                    broadcast(new Heartbeat(this.roundNum, this.serverID, this.address(), this.voteID, this.firstUnchosenIndex, this.server_FirstUnchosenIndex, this.server_LogForFirstUnchosenIndex));
                 }
                 // else follower, only send heartbeat to leader
                 else {
-                    send(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex), leaderAddress);
+                    send(new Heartbeat(this.roundNum, this.serverID, this.address(), this.voteID, this.firstUnchosenIndex, this.server_FirstUnchosenIndex, this.server_LogForFirstUnchosenIndex), leaderAddress);
                 }
             }
         }
@@ -401,8 +412,29 @@ public class PaxosServer extends Node {
         // same to voteID
         this.voteID = this.serverID;
 
+        // GC
+        // check if I have all server's firstUnchosenIndex info
+        if (this.server_FirstUnchosenIndex.size() == this.servers.length) {
+            int minFirstUnchosenIndex = Collections.min(this.server_FirstUnchosenIndex.values());
+            for (int i = gcPointer; i < minFirstUnchosenIndex; i++) {
+                log.remove(i);
+            }
+        }
+
         set(t, HEARTBEAT_MILLIS);
 
+    }
+
+    private void onProposerTimer(ProposerTimer t) {
+        // keep broadcasting proposal request only when three conditions are all met:
+        // 1. the leader kept the same, the proposer(i.e., leader) hasn't changed
+        // 2. the leader hasn't receive a quorum reply
+        // 3. the proposing process hasn't been completed
+
+        if (this.address().equals(this.leaderAddress) && this.proposalRepliers.size() + 1 < quorum && this.proposerRequest != null ) {
+            broadcast(this.proposerRequest);
+            set(t, PROPOSER_RETRY_MILLIS);
+        }
     }
 
     /* -------------------------------------------------------------------------
@@ -484,17 +516,53 @@ public class PaxosServer extends Node {
         return false;
     }
 
-    private void leaderSyncWithFollower() {
+    private void leaderSyncWithFollower(Heartbeat followerHb) {
+        int followerFirstUnchosenIndex = followerHb.firstUnchosenIndex();
+        Address followerAddress = followerHb.senderAddress();
 
+        // update the follwer's firstUnchosenIndex and corresponding log for the index
+        // in this.server_FirstUnchosenIndex and this.server_LogForFirstUnchosenIndex
+        if (followerFirstUnchosenIndex > this.server_FirstUnchosenIndex.get(followerAddress)) {
+            this.server_FirstUnchosenIndex.put(followerAddress, followerFirstUnchosenIndex);
+            Log logInTheSlot = log.get(followerFirstUnchosenIndex);
+            this.server_LogForFirstUnchosenIndex.put(followerAddress, logInTheSlot);
+        }
     }
 
-    private void followerSyncWithLeader() {
+    private void followerSyncWithLeader(Heartbeat leaderHb) {
+        // check if I need to update my firstUnchosenIndex and corresponding log slot
+        int leaderFirstUnchosenIndex = leaderHb.firstUnchosenIndex();
+        if (leaderFirstUnchosenIndex > this.firstUnchosenIndex) {
+            Log logForSlot = leaderHb.server_LogForFirstUnchosenIndex().get(this.address());
+            // update my log in the firstUnchosenIndex logslot
+            log.put(firstUnchosenIndex, logForSlot);
+
+            Command command = logForSlot.command;
+            app.execute(command);
+            // update my FirstUnchosenIndex
+            updateFirstUnchosenIndex();
+
+            // update my FirstUnchosenIndex in this.server_server_FirstUnchosenIndex
+            this.server_FirstUnchosenIndex.put(this.address(), this.firstUnchosenIndex);
+        }
 
     }
 
     private void setLogInPosition(ProposerRequest pReq, PaxosLogSlotStatus status) {
         Log logInSlotNum = new Log(pReq.proposalNum(), pReq.slotNum(), status, pReq.localAcceptedCommand());
         log.put(pReq.slotNum(), logInSlotNum);
+    }
+
+    private void updateFirstUnchosenIndex() {
+        int maxSlotNumInMyLog = Collections.max(log.keySet());
+        for (int i = this.firstUnchosenIndex + 1; i <= maxSlotNumInMyLog; i++) {
+            Log curLog = log.get(i);
+            if (curLog == null || curLog.status != CHOSEN) {
+                this.firstUnchosenIndex = i;
+                this.server_FirstUnchosenIndex.put(this.address(), this.firstUnchosenIndex);
+                break;
+            }
+        }
     }
 
 
