@@ -1,6 +1,8 @@
 package dslabs.paxos;
 
 import dslabs.atmostonce.AMOApplication;
+import dslabs.atmostonce.AMOCommand;
+import dslabs.atmostonce.AMOResult;
 import dslabs.framework.Address;
 import dslabs.framework.Application;
 import dslabs.framework.Command;
@@ -36,6 +38,8 @@ public class PaxosServer extends Node {
     private boolean isLeaderAlive;
     private Set<Address> myVoters;
     private int voteID;
+    private int gcPointer;
+    private int toExecuteIndex;
 
     /* -------------------------------------------------------------------------
         Construction and Initialization
@@ -57,6 +61,8 @@ public class PaxosServer extends Node {
         this.isLeaderAlive = false;
         this.myVoters = new HashSet<>();
         this.voteID = this.serverID;
+        this.gcPointer = 0;
+        this.toExecuteIndex = 0;
     }
 
 
@@ -158,6 +164,38 @@ public class PaxosServer extends Node {
        -----------------------------------------------------------------------*/
     private void handlePaxosRequest(PaxosRequest m, Address sender) {
         // Your code here...
+        // only leader will process client's requests
+        if (!this.address().equals(this.leaderAddress)) {
+            return;
+        }
+
+        AMOCommand command = m.command();
+        // this client request has been executed already
+        if (app.alreadyExecuted(command)) {
+            AMOResult r = app.execute(m.command());
+            send(new PaxosReply(r), sender);
+            return;
+        }
+        // otherwise, there are three cases, in all the three cases the server will not reply the client
+        // 1. the command has been in non-executed log: the command will be executed eventually either its current status is ACCEPTED or CHOSEN as long as the
+        // distributed system has majority server alive to make progress
+        // in case 1: the leader doesn't do anything towards the in-log request; we just wait the in-log command be executed as time goes by
+        //
+        // the other two cases cannot guarantee this command will be executed eventually (because this servers can fails):
+        // 2. the server is 1st time receive this command
+        // in case 2: the leader is going to launch 2-phase proposal for the command; but consider a 2-phase proposal possible is in process, so we need to save the command
+        //            to a to-do-set
+        // 3. the server is >= 2nd time receive this command, it has launched the 2-phase proposal, now the 2-phase is in process;
+        // in case 3: the leader doesn't do anything towards the >= 2nd received request; we just wait the 2-phase to be done.
+        // this is the 1st time the leader receives this client's request, leader should start 2-phase proposal
+
+        // if it's case 1 or case 3, the server will do nothing towards the multi-time received command
+        // only in case 2, the server need to register the command and then start 2-phase proposal
+        if (!isInLogToExecute(command) || !hasRegisteredFor2Phase(command)) {
+
+        }
+
+
     }
 
     // Your code here...
@@ -347,6 +385,14 @@ public class PaxosServer extends Node {
                 send(new Heartbeat(this.roundNum, this.serverID, this.voteID, this.firstUnchosenIndex), server);
             }
         }
+    }
+
+    private boolean isInLogToExecute(Command command) {
+        return false;
+    }
+
+    private boolean hasRegisteredFor2Phase(Command command) {
+        return false;
     }
 
     private void leaderSyncWithFollower() {
