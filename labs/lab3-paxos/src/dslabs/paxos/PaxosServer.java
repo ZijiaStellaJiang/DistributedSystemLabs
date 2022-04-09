@@ -203,7 +203,18 @@ public class PaxosServer extends Node {
        -----------------------------------------------------------------------*/
     private void handlePaxosRequest(PaxosRequest m, Address sender) {
         // Your code here...
-        // this client request has been executed already
+
+
+        // only leader will process client's requests
+        if (!this.address().equals(this.leaderAddress)) {
+            // if no result && this server is a follower
+            // redirect the message to leader
+            send(m, leaderAddress);
+            return;
+        }
+
+        // this client request has been executed already (only leader can reply to client, because for test case 8,
+        // test case checks if multiple client can get the same reply.
         AMOCommand command = m.command();
 
         if (app.alreadyExecuted(command)) {
@@ -211,14 +222,6 @@ public class PaxosServer extends Node {
             send(new PaxosReply(r), m.command().sender);
             return;
         }
-
-        // only leader will process client's requests
-        if (!this.address().equals(this.leaderAddress)) {
-            // if no result && this server is a follower
-            // redirect the message to leader
-            send(m, leaderAddress);
-        }
-
         // two cases:
         // 1. the command has been in non-executed log -> don't reply client, the command in log will be later executed
         // 2. otherwise -> if leader is proposing now, ignore; else leader launch a proposal
@@ -340,6 +343,7 @@ public class PaxosServer extends Node {
         if (this.address().equals(leaderAddress)
                 && aReply.proposalNum().roundNum == this.roundNum
                 && aReply.proposalNum().ServerID == this.serverID
+                && aReply.slotNum() == this.firstUnchosenIndex
                 && this.proposerRequest != null
         ) {
 
