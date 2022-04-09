@@ -5,8 +5,13 @@ import dslabs.framework.Application;
 import dslabs.framework.Command;
 import dslabs.framework.Message;
 import dslabs.framework.Node;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
@@ -21,12 +26,13 @@ public class PaxosServer extends Node {
     private final AMOApplication<Application> app;
     private final Map<Integer, PaxosLogSlot> log;
     private final Map<AMOCommand, Integer> commandSlotNumMap;
-    private final Map<AMOCommand, AMOResult> commandResultMap;
+    private final Set<Address> allServers;
+    private final Map<Address, Integer> firstUnchosenSlotNumMap;
     private Address leaderAddress;
-    private int quorum;
-    private int firstNonClearedSlotNum;
-    private int firstUnchosenSlotNum;
-    private int lastNonEmptySlotNum;
+    private final int quorum;
+    private final PaxosSlotNumPointer slotNumPointer;
+    private int roundNum;
+    private int serverId;
     private int state;
     //0: follower, 1: leader
 
@@ -41,10 +47,14 @@ public class PaxosServer extends Node {
         this.app = new AMOApplication<>(app);
         this.log = new HashMap<>();
         this.commandSlotNumMap = new HashMap<>();
-        this.commandResultMap = new HashMap<>();
-        this.firstNonClearedSlotNum = 1;
-        this.lastNonEmptySlotNum = 0;
-        this.firstUnchosenSlotNum = 1;
+        this.firstUnchosenSlotNumMap = new HashMap<>();
+        for(Address server : servers){
+            firstUnchosenSlotNumMap.put(server, 1);
+        }
+        this.allServers = Arrays.stream(servers).collect(Collectors.toSet());
+        this.roundNum = 0;
+        this.serverId = findServerId();
+        this.slotNumPointer = new PaxosSlotNumPointer();
         this.state = 0;
         this.quorum = servers.length / 2 + 1;
 
@@ -56,12 +66,212 @@ public class PaxosServer extends Node {
         }
     }
 
-
     @Override
     public void init() {
         // Your code here...
-
+        // set heartbeatTimer
+        set(new HeartbeatTimer(), HeartbeatTimer.HEARTBEAT_MILLIS);
     }
+
+    /* -------------------------------------------------------------------------
+        Message Handlers
+       -----------------------------------------------------------------------*/
+    private void handlePaxosRequest(PaxosRequest m, Address sender) {
+        // Your code here...
+        AMOCommand amoCommand = m.amoCommand();
+        if (app.alreadyExecuted(amoCommand)){
+            // if the command has been executed, return the result
+            AMOResult r = app.execute(amoCommand);
+            send(new PaxosReply(r), m.amoCommand().sender());
+        }else if (state == 0) {
+            // if no result && this server is a follower
+            // redirect the message to leader
+            send(m, leaderAddress);
+        }else if (state == 1) {
+            // no result, this is leader
+            // try propose
+            allocateSlot(slotNumPointer.firstEmptySlotNum(), amoCommand);
+            updateFirstEmptySlotNum();
+        }
+    }
+
+    // Your code here...
+
+    private void handleLeaderMessage(LeaderMessage lm, Address sender){
+        if (state == 0 && isLeader(sender)){
+            executeAndGC(lm);
+            updateFollowerLog(lm);
+            updateFollowerSlotNumPointer();
+        }
+    }
+
+    private void handleFollowerMessage(FollowerMessage fm, Address sender){
+        if (state == 1 && isFollower(sender)) {
+            updateLeaderLog(fm, sender);
+            updateExecuteToNum(fm, sender);
+        }
+    }
+
+    /* -------------------------------------------------------------------------
+        Timer Handlers
+       -----------------------------------------------------------------------*/
+    // Your code here...
+    private void onHeartbeatTimer(HeartbeatTimer t){
+        if (state == 1) {
+            broadcast(new LeaderMessage(log, slotNumPointer));
+        } else if (state == 0) {
+            send(new FollowerMessage(log, slotNumPointer), leaderAddress);
+        }
+        set(t,HeartbeatTimer.HEARTBEAT_MILLIS);
+    }
+
+    /* -------------------------------------------------------------------------
+        Utils
+       -----------------------------------------------------------------------*/
+    // Your code here...
+    private void updateExecuteToNum(FollowerMessage fm, Address sender){
+        PaxosSlotNumPointer followerPointer = fm.slotNumPointer();
+        firstUnchosenSlotNumMap.put(sender, followerPointer.firstUnchosenSlotNum());
+        int newExecuteToNum = followerPointer.firstUnchosenSlotNum() - 1;
+        for (Address server : firstUnchosenSlotNumMap.keySet()){
+            newExecuteToNum = Math.min(newExecuteToNum, firstUnchosenSlotNumMap.get(server) - 1);
+        }
+        if (newExecuteToNum > slotNumPointer.executeToSlotNum()){
+            slotNumPointer.executeToSlotNum(newExecuteToNum);
+        }
+    }
+
+    private void updateLeaderLog(FollowerMessage fm, Address sender){
+        Map<Integer, PaxosLogSlot> followerLog = fm.log();
+        for(Integer slotNum : followerLog.keySet()){
+            if (slotNum >= slotNumPointer.firstUnchosenSlotNum()){
+                PaxosLogSlot followerSlot = followerLog.get(slotNum);
+                PaxosLogSlot leaderSlot = log.get(slotNum);
+                if (leaderSlot.status().equals(PaxosLogSlotStatus.ACCEPTED)){
+                    if (followerSlot.compareTo(leaderSlot) < 0){
+                        commandSlotNumMap.remove(leaderSlot.amoCommand());
+                        followerSlot.acceptors().add(this.address());
+                        log.put(slotNum, followerSlot);
+                        commandSlotNumMap.put(followerSlot.amoCommand(), slotNum);
+                    } else if (followerSlot.compareTo(leaderSlot) == 0){
+                        leaderSlot.acceptors().add(sender);
+                        if (leaderSlot.acceptors().size() >= quorum){
+                            leaderSlot.status(PaxosLogSlotStatus.CHOSEN);
+                            app.execute(leaderSlot.amoCommand());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void updateFollowerSlotNumPointer(){
+        int newFirstUnchosenSlotNum = slotNumPointer.firstUnchosenSlotNum();
+        int newFirstEmptySlotNum = slotNumPointer.firstEmptySlotNum();
+        while(log.containsKey(newFirstEmptySlotNum)){
+            newFirstEmptySlotNum++;
+        }
+        while(log.containsKey(newFirstUnchosenSlotNum) && log.get(newFirstUnchosenSlotNum).status().equals(PaxosLogSlotStatus.CHOSEN)){
+            newFirstUnchosenSlotNum++;
+        }
+        slotNumPointer.firstUnchosenSlotNum(newFirstUnchosenSlotNum);
+        slotNumPointer.firstEmptySlotNum(newFirstEmptySlotNum);
+    }
+
+    private void updateFollowerLog(LeaderMessage lm){
+        Map<Integer, PaxosLogSlot> leaderLog = lm.log();
+        int newLastNonEmptySlotNum = slotNumPointer.lastNonEmptySlotNum();
+        for (Integer slotNum : leaderLog.keySet()){
+            if (slotNum >= slotNumPointer.firstNonClearedSlotNum()){
+                newLastNonEmptySlotNum = Math.max(newLastNonEmptySlotNum, slotNum);
+                PaxosLogSlot leaderSlot = leaderLog.get(slotNum);
+                PaxosLogSlot followerSlot = log.get(slotNum);
+                if (followerSlot == null) {
+                    // 1. follower slot is empty
+                    leaderSlot.acceptors().add(this.address());
+                    log.put(slotNum, leaderSlot);
+                    commandSlotNumMap.put(leaderSlot.amoCommand(),slotNum);
+                } else if (followerSlot.status().equals(PaxosLogSlotStatus.ACCEPTED)){
+                    // 2. follower slot has an accepted value
+                    // only sync with leader when leader's is earlier
+                    if (leaderSlot.compareTo(followerSlot) < 0){
+                        commandSlotNumMap.remove(followerSlot.amoCommand());
+                        leaderSlot.acceptors().add(this.address());
+                        log.put(slotNum, leaderSlot);
+                        commandSlotNumMap.put(leaderSlot.amoCommand(), slotNum);
+                    }
+                }
+            }
+        }
+        slotNumPointer.lastNonEmptySlotNum(newLastNonEmptySlotNum);
+    }
+
+    private void executeAndGC(LeaderMessage lm){
+        Map<Integer, PaxosLogSlot> leaderLog = lm.log();
+        int executeToSlotNum = lm.slotNumPointer().executeToSlotNum();
+        int executeFromSlotNum = slotNumPointer.firstNonClearedSlotNum();
+        while(executeFromSlotNum <= executeToSlotNum){
+            PaxosLogSlot leaderSlot = leaderLog.get(executeFromSlotNum);
+            assert(leaderSlot!=null && leaderSlot.status().equals(PaxosLogSlotStatus.CHOSEN));
+            PaxosLogSlot mySlot = log.get(executeFromSlotNum);
+            assert(mySlot!=null); // and the status should be either accepted or chosen
+            app.execute(leaderSlot.amoCommand());
+
+            gc(executeFromSlotNum);
+            executeFromSlotNum++;
+        }
+        slotNumPointer.firstNonClearedSlotNum(executeToSlotNum+1);
+        slotNumPointer.executeToSlotNum(executeToSlotNum);
+    }
+
+    private void gc(int slotNum){
+        PaxosLogSlot slot = log.get(slotNum);
+        assert(slot!=null);
+        commandSlotNumMap.remove(slot.amoCommand());
+        log.remove(slotNum);
+    }
+
+    private void broadcast(Message m){
+        for(Address paxosServer : servers){
+            if(!paxosServer.equals(this.address())){
+                send(m, paxosServer);
+            }
+        }
+    }
+
+    private int findServerId(){
+        for(int i = 0;i<servers.length;i++){
+            if(servers[i].equals(this.address())){
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void allocateSlot(int slotNum, AMOCommand amoCommand){
+        if (!commandSlotNumMap.containsKey(amoCommand)){
+            commandSlotNumMap.put(amoCommand, slotNum);
+            PaxosLogSlot logSlot = new PaxosLogSlot(roundNum, serverId, slotNum, PaxosLogSlotStatus.ACCEPTED, new HashSet<>(), amoCommand);
+            logSlot.acceptors().add(this.address());
+            log.put(slotNum, logSlot);
+            slotNumPointer.lastNonEmptySlotNum(Math.max(slotNumPointer.lastNonEmptySlotNum(), slotNum));
+        }
+    }
+
+    private void updateFirstEmptySlotNum(){
+        while(!status(slotNumPointer.firstEmptySlotNum()).equals(PaxosLogSlotStatus.EMPTY)){
+            slotNumPointer.firstEmptySlotNum(slotNumPointer.firstEmptySlotNum() + 1);
+        }
+    }
+
+    private boolean isLeader(Address address){
+        return leaderAddress.equals(address);
+    }
+
+    private boolean isFollower(Address address){
+        return !leaderAddress.equals(address) && allServers.contains(address);
+    }
+
 
     /* -------------------------------------------------------------------------
         Interface Methods
@@ -90,10 +300,10 @@ public class PaxosServer extends Node {
         // Your code here...
         if (log.containsKey(logSlotNum)){
             return log.get(logSlotNum).status();
-        }else if(firstNonClearedSlotNum > logSlotNum){
+        }else if(slotNumPointer.firstEmptySlotNum() > logSlotNum){
             return PaxosLogSlotStatus.CLEARED;
         }
-        return null;
+        return PaxosLogSlotStatus.EMPTY;
     }
 
     /**
@@ -136,7 +346,7 @@ public class PaxosServer extends Node {
      */
     public int firstNonCleared() {
         // Your code here...
-        return firstNonClearedSlotNum;
+        return slotNumPointer.firstNonClearedSlotNum();
     }
 
     /**
@@ -152,74 +362,6 @@ public class PaxosServer extends Node {
      */
     public int lastNonEmpty() {
         // Your code here...
-        return lastNonEmptySlotNum;
+        return slotNumPointer.lastNonEmptySlotNum();
     }
-
-    /* -------------------------------------------------------------------------
-        Message Handlers
-       -----------------------------------------------------------------------*/
-    private void handlePaxosRequest(PaxosRequest m, Address sender) {
-        // Your code here...
-        AMOCommand amoCommand = m.amoCommand();
-//        if (hasResult(amoCommand)) {
-//            // 如果已经有结果,直接返回结果
-//            // 这里的结果必须是确定chosen 后返回的
-//            send(new PaxosReply(commandResultMap.get(amoCommand)), sender);
-//         改为收到chosen的信息时 发送给用户
-
-//        } else
-        if (state == 0) {
-            // 如果没有结果且本机不是leader, 转发给leader决定
-            send(m,leaderAddress);
-        } else if (state == 1) {
-            // 如果没有分配过slot, 那就检查firstNonCleared开始的所有slot
-            // 如果slot为chosen 跳过
-            // 如果slot不为chosen 但也不为empty broadcast 然后跳过
-            // 如果slot为empty 分配该slot给它，broadcast slotnum和command
-
-
-        }
-    }
-
-    // Your code here...
-
-    private void handleLeaderMessage(LeaderMessage lm, Address sender){
-        Map<Integer, PaxosLogSlot> leaderLog = lm.log();
-
-    }
-
-    private void handleFollowerMessage(FollowerMessage fm, Address sender){
-
-    }
-
-    /* -------------------------------------------------------------------------
-        Timer Handlers
-       -----------------------------------------------------------------------*/
-    // Your code here...
-
-    /* -------------------------------------------------------------------------
-        Utils
-       -----------------------------------------------------------------------*/
-    // Your code here...
-    private void broadcast(Message m){
-        for(Address paxosServer : servers){
-            if(!paxosServer.equals(this.address())){
-                send(m, paxosServer);
-            }
-        }
-    }
-
-    private int findServerId(){
-        for(int i = 0;i<servers.length;i++){
-            if(servers[i].equals(this.address())){
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private boolean hasResult(AMOCommand amoCommand){
-        return commandResultMap.getOrDefault(amoCommand, null) != null;
-    }
-
 }

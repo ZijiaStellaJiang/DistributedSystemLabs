@@ -11,3 +11,9 @@ final class ClientTimer implements Timer {
     // Your code here...
     private final Command command;
 }
+
+@Data
+final class HeartbeatTimer implements Timer{
+    static final int HEARTBEAT_MILLIS = 50;
+
+}
