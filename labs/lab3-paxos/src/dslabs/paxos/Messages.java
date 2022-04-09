@@ -1,14 +1,15 @@
 package dslabs.paxos;
 
 import dslabs.framework.Message;
+import java.util.Map;
 import lombok.Data;
 
 @Data
-class ForwardRequest implements Message {
-    private final AMOCommand command;
+class LeaderMessage implements Message{
+    private final Map<Integer, PaxosLogSlot> log;
 }
 
 @Data
-class ForwardReply implements Message{
-    private final AMOResult result;
+class FollowerMessage implements Message{
+    private final int firstUnchosenSlot;
 }

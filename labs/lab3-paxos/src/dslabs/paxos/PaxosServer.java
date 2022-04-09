@@ -22,12 +22,11 @@ public class PaxosServer extends Node {
     private final Map<Integer, PaxosLogSlot> log;
     private final Map<AMOCommand, Integer> commandSlotNumMap;
     private final Map<AMOCommand, AMOResult> commandResultMap;
-    private final int serverId;
-    private int round;
     private Address leaderAddress;
     private int quorum;
-    private int firstNonCleared;
-    private int lastNonEmpty;
+    private int firstNonClearedSlotNum;
+    private int firstUnchosenSlotNum;
+    private int lastNonEmptySlotNum;
     private int state;
     //0: follower, 1: leader
 
@@ -43,16 +42,14 @@ public class PaxosServer extends Node {
         this.log = new HashMap<>();
         this.commandSlotNumMap = new HashMap<>();
         this.commandResultMap = new HashMap<>();
-        this.firstNonCleared = 1;
-        this.lastNonEmpty = 0;
+        this.firstNonClearedSlotNum = 1;
+        this.lastNonEmptySlotNum = 0;
+        this.firstUnchosenSlotNum = 1;
         this.state = 0;
         this.quorum = servers.length / 2 + 1;
 
-        this.serverId = findServerId();
-
         // temporarily make the last one to be the leader,
         // leader election remains to be implemented
-        this.round = 0;
         this.leaderAddress = servers[servers.length - 1];
         if (address.equals(servers[servers.length-1])){
             this.state = 1;
@@ -93,7 +90,7 @@ public class PaxosServer extends Node {
         // Your code here...
         if (log.containsKey(logSlotNum)){
             return log.get(logSlotNum).status();
-        }else if(firstNonCleared > logSlotNum){
+        }else if(firstNonClearedSlotNum > logSlotNum){
             return PaxosLogSlotStatus.CLEARED;
         }
         return null;
@@ -139,7 +136,7 @@ public class PaxosServer extends Node {
      */
     public int firstNonCleared() {
         // Your code here...
-        return firstNonCleared;
+        return firstNonClearedSlotNum;
     }
 
     /**
@@ -155,7 +152,7 @@ public class PaxosServer extends Node {
      */
     public int lastNonEmpty() {
         // Your code here...
-        return lastNonEmpty;
+        return lastNonEmptySlotNum;
     }
 
     /* -------------------------------------------------------------------------
@@ -164,25 +161,35 @@ public class PaxosServer extends Node {
     private void handlePaxosRequest(PaxosRequest m, Address sender) {
         // Your code here...
         AMOCommand amoCommand = m.amoCommand();
-        if (hasResult(amoCommand)) {
-            // 如果已经有结果,直接返回结果
-            send(new PaxosReply(commandResultMap.get(amoCommand)), sender);
-        } else if (state == 0) {
+//        if (hasResult(amoCommand)) {
+//            // 如果已经有结果,直接返回结果
+//            // 这里的结果必须是确定chosen 后返回的
+//            send(new PaxosReply(commandResultMap.get(amoCommand)), sender);
+//         改为收到chosen的信息时 发送给用户
+
+//        } else
+        if (state == 0) {
             // 如果没有结果且本机不是leader, 转发给leader决定
-            send(new ForwardRequest(m.amoCommand()),leaderAddress);
+            send(m,leaderAddress);
         } else if (state == 1) {
-            // 如果没有分配过slot, 那就检查firstNonCleared开始 第一个空值
+            // 如果没有分配过slot, 那就检查firstNonCleared开始的所有slot
+            // 如果slot为chosen 跳过
+            // 如果slot不为chosen 但也不为empty broadcast 然后跳过
+            // 如果slot为empty 分配该slot给它，broadcast slotnum和command
+
 
         }
     }
 
     // Your code here...
 
-    private void handleForwardRequest(ForwardRequest fr, Address sender) {
-        // Your code here...
-        if (state == 1) {
+    private void handleLeaderMessage(LeaderMessage lm, Address sender){
+        Map<Integer, PaxosLogSlot> leaderLog = lm.log();
 
-        }
+    }
+
+    private void handleFollowerMessage(FollowerMessage fm, Address sender){
+
     }
 
     /* -------------------------------------------------------------------------

@@ -70,8 +70,8 @@ public final class PaxosClient extends Node implements Client {
     private synchronized void handlePaxosReply(PaxosReply m, Address sender) {
         // Your code here...
         for(Address server: servers){
-            if(sender.equals(server) && m.result().sequenceNum() == sequenceNum){
-                result = m.result().result();
+            if(sender.equals(server) && m.amoResult().sequenceNum() == sequenceNum){
+                result = m.amoResult().result();
                 notify();
             }
         }
