@@ -65,12 +65,16 @@ public class PaxosServer extends Node {
         this.firstUnchosenIndex = 1;
         this.log = new HashMap<>();
         this.server_FirstUnchosenIndex = new HashMap<>();
+        for (Address server: servers) {
+            this.server_FirstUnchosenIndex.put(server, 1);
+        }
+
         this.server_LogForFirstUnchosenIndex = new HashMap<>();
         this.roundNum = 0;
         this.serverID = generateServerID(address, servers);
-        this.leaderAddress = null;
-        this.leaderID = -1;
-        this.isLeaderAlive = false;
+        this.leaderAddress = servers[2];
+        this.leaderID = 2;
+        this.isLeaderAlive = true;
         this.myVoters = new HashSet<>();
         this.voteID = this.serverID;
         this.gcPointer = 1;
@@ -83,8 +87,10 @@ public class PaxosServer extends Node {
     public void init() {
         // Your code here...
         // broadcast heartbeat to all other servers
-        broadcast(new Heartbeat(this.roundNum, this.serverID, this.address(), this.voteID, this.firstUnchosenIndex, this.server_FirstUnchosenIndex, this.server_LogForFirstUnchosenIndex));
-        set(new HeartbeatTimer(), HEARTBEAT_MILLIS);
+//        broadcast(new Heartbeat(this.roundNum, this.serverID, this.address(), this.voteID, this.firstUnchosenIndex, this.server_FirstUnchosenIndex, this.server_LogForFirstUnchosenIndex));
+//        HeartbeatTimer t = new HeartbeatTimer();
+//        t.leaderTolerate(true);
+//        set(t, HEARTBEAT_MILLIS);
     }
 
     /* -------------------------------------------------------------------------
@@ -186,7 +192,7 @@ public class PaxosServer extends Node {
             Set<Integer> curSlotNums = log.keySet();
             int maxSlotNum = Collections.max(curSlotNums);
             for (int i = maxSlotNum; i >= gcPointer; i--) {
-                if (log.get(i) == null) return i+1;
+                if (log.get(i) != null) return i;
             }
         }
         return 0;
@@ -330,7 +336,9 @@ public class PaxosServer extends Node {
         // make sure I am the leader in this round and I only process aReply with the same slotNum
         if (this.address().equals(leaderAddress)
                 && aReply.proposalNum().roundNum == this.roundNum
-                && aReply.proposalNum().ServerID == this.serverID) {
+                && aReply.proposalNum().ServerID == this.serverID
+                && this.proposerRequest != null
+        ) {
 
             // once find an accepted command, I need to change my command to the already accepted command
             AMOCommand alreadyAcceptedFromFollowers = null;
@@ -383,7 +391,9 @@ public class PaxosServer extends Node {
         // else in leader-follower mode
         else {
             // if leader is not active, reset leader info and go to election mode
-            if (!this.isLeaderAlive) {
+            if (!this.isLeaderAlive && !t.leaderTolerate()) {
+                t.leaderTolerate(true);
+            } else if (!this.isLeaderAlive && !t.leaderTolerate()) {
                 // reset leader info in state
                 this.leaderAddress = null;
                 this.leaderID = -1;
@@ -392,6 +402,7 @@ public class PaxosServer extends Node {
             // else the leader is active, keep in leader-follower mode:
             // only leader broadcasts its heartbeat and followers only send heartbeat to leader
             else {
+                t.leaderTolerate(true);
                 // if leader, then broadcast heartbeat
                 if (this.address().equals(leaderAddress)) {
                     broadcast(new Heartbeat(this.roundNum, this.serverID, this.address(), this.voteID, this.firstUnchosenIndex, this.server_FirstUnchosenIndex, this.server_LogForFirstUnchosenIndex));
@@ -403,7 +414,9 @@ public class PaxosServer extends Node {
             }
         }
 
-        this.isLeaderAlive = false;
+        if (!this.address().equals(this.isLeaderAlive)) {
+            this.isLeaderAlive = false;
+        }
         // clear last T period leader election data
         // => in a 5-server leader election: consider case in (T-1) period, 1, 2, 3, 4, 5 are active; but in T period, only 1, 2 are active, then because only
         // minority is active, so the 5-server group will not have a leader. So it is necessary to clear last T period's record
@@ -554,16 +567,11 @@ public class PaxosServer extends Node {
     }
 
     private void updateFirstUnchosenIndex() {
-        int maxSlotNumInMyLog = Collections.max(log.keySet());
-        for (int i = this.firstUnchosenIndex + 1; i <= maxSlotNumInMyLog; i++) {
-            Log curLog = log.get(i);
-            if (curLog == null || curLog.status != CHOSEN) {
-                this.firstUnchosenIndex = i;
-                this.server_FirstUnchosenIndex.put(this.address(), this.firstUnchosenIndex);
-                break;
-            }
+        int i = this.firstUnchosenIndex + 1;
+        while (this.log.get(i) != null && this.log.get(i).status != CHOSEN) {
+            i++;
         }
+        this.firstUnchosenIndex = i;
+        this.server_FirstUnchosenIndex.put(this.address(), this.firstUnchosenIndex);
     }
-
-
 }
