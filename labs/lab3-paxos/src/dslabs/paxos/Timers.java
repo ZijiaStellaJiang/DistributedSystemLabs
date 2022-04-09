@@ -7,7 +7,7 @@ import lombok.Data;
 
 @Data
 final class ClientTimer implements Timer {
-    static final int CLIENT_RETRY_MILLIS = 100;
+    static final int CLIENT_RETRY_MILLIS = 15;
 
     // Your code here...
     private final Command command;
@@ -23,6 +23,6 @@ final class HeartbeatTimer implements Timer {
 
 @Data
 final class ProposerTimer implements Timer {
-    static final int PROPOSER_RETRY_MILLIS = 50;
+    static final int PROPOSER_RETRY_MILLIS = 20;
     private final ProposerRequest pReq;
 }

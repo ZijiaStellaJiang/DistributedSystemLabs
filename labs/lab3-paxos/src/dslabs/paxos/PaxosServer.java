@@ -66,7 +66,7 @@ public class PaxosServer extends Node {
         this.log = new HashMap<>();
         this.server_FirstUnchosenIndex = new HashMap<>();
         for (Address server: servers) {
-            this.server_FirstUnchosenIndex.put(server, 1);
+            this.server_FirstUnchosenIndex.put(server, 0);
         }
 
         this.server_LogForFirstUnchosenIndex = new HashMap<>();
@@ -87,10 +87,10 @@ public class PaxosServer extends Node {
     public void init() {
         // Your code here...
         // broadcast heartbeat to all other servers
-//        broadcast(new Heartbeat(this.roundNum, this.serverID, this.address(), this.voteID, this.firstUnchosenIndex, this.server_FirstUnchosenIndex, this.server_LogForFirstUnchosenIndex));
-//        HeartbeatTimer t = new HeartbeatTimer();
-//        t.leaderTolerate(true);
-//        set(t, HEARTBEAT_MILLIS);
+        broadcast(new Heartbeat(this.roundNum, this.serverID, this.address(), this.voteID, this.firstUnchosenIndex, this.server_FirstUnchosenIndex, this.server_LogForFirstUnchosenIndex));
+        HeartbeatTimer t = new HeartbeatTimer();
+        t.leaderTolerate(true);
+        set(t, HEARTBEAT_MILLIS);
     }
 
     /* -------------------------------------------------------------------------
@@ -203,23 +203,26 @@ public class PaxosServer extends Node {
        -----------------------------------------------------------------------*/
     private void handlePaxosRequest(PaxosRequest m, Address sender) {
         // Your code here...
-        // only leader will process client's requests
-        if (!this.address().equals(this.leaderAddress)) {
+        // this client request has been executed already
+        AMOCommand command = m.command();
+
+        if (app.alreadyExecuted(command)) {
+            AMOResult r = app.execute(m.command());
+            send(new PaxosReply(r), m.command().sender);
             return;
         }
 
-        AMOCommand command = m.command();
-        // this client request has been executed already
-        if (app.alreadyExecuted(command)) {
-            AMOResult r = app.execute(m.command());
-            send(new PaxosReply(r), sender);
-            return;
+        // only leader will process client's requests
+        if (!this.address().equals(this.leaderAddress)) {
+            // if no result && this server is a follower
+            // redirect the message to leader
+            send(m, leaderAddress);
         }
 
         // two cases:
         // 1. the command has been in non-executed log -> don't reply client, the command in log will be later executed
         // 2. otherwise -> if leader is proposing now, ignore; else leader launch a proposal
-        if (!isInLogToExecute(command) && this.proposerRequest == null) {
+        else if (!isInLogToExecute(command) && this.proposerRequest == null) {
             int slotNum = this.firstUnchosenIndex;
             AMOCommand localAcceptedCommand = getLogAMOCommand(slotNum);
             this.proposerRequest = new ProposerRequest(new ProposalNum(roundNum, this.serverID), slotNum, localAcceptedCommand, command);
@@ -427,12 +430,13 @@ public class PaxosServer extends Node {
 
         // GC
         // check if I have all server's firstUnchosenIndex info
-        if (this.server_FirstUnchosenIndex.size() == this.servers.length) {
-            int minFirstUnchosenIndex = Collections.min(this.server_FirstUnchosenIndex.values());
-            for (int i = gcPointer; i < minFirstUnchosenIndex; i++) {
-                log.remove(i);
-            }
-        }
+//        if (this.server_FirstUnchosenIndex.size() == this.servers.length && this.log.size() > 50) {
+//            int minFirstUnchosenIndex = Collections.min(this.server_FirstUnchosenIndex.values());
+//            for (int i = gcPointer; i < minFirstUnchosenIndex; i++) {
+//                log.remove(i);
+//            }
+//            gcPointer = minFirstUnchosenIndex;
+//        }
 
         set(t, HEARTBEAT_MILLIS);
 
@@ -535,7 +539,7 @@ public class PaxosServer extends Node {
 
         // update the follwer's firstUnchosenIndex and corresponding log for the index
         // in this.server_FirstUnchosenIndex and this.server_LogForFirstUnchosenIndex
-        if (followerFirstUnchosenIndex > this.server_FirstUnchosenIndex.get(followerAddress)) {
+        if (followerFirstUnchosenIndex < this.firstUnchosenIndex && followerFirstUnchosenIndex > this.server_FirstUnchosenIndex.get(followerHb.senderAddress())) {
             this.server_FirstUnchosenIndex.put(followerAddress, followerFirstUnchosenIndex);
             Log logInTheSlot = log.get(followerFirstUnchosenIndex);
             this.server_LogForFirstUnchosenIndex.put(followerAddress, logInTheSlot);
@@ -546,17 +550,16 @@ public class PaxosServer extends Node {
         // check if I need to update my firstUnchosenIndex and corresponding log slot
         int leaderFirstUnchosenIndex = leaderHb.firstUnchosenIndex();
         if (leaderFirstUnchosenIndex > this.firstUnchosenIndex) {
+            if (leaderHb.server_FirstUnchosenIndex().get(this.address()) != this.firstUnchosenIndex) return;
             Log logForSlot = leaderHb.server_LogForFirstUnchosenIndex().get(this.address());
+            if (logForSlot == null) return;
             // update my log in the firstUnchosenIndex logslot
             log.put(firstUnchosenIndex, logForSlot);
 
             Command command = logForSlot.command;
             app.execute(command);
-            // update my FirstUnchosenIndex
+            // update my FirstUnchosenIndex in this.firstUnchosenIndex and this.server_server_FirstUnchosenIndex
             updateFirstUnchosenIndex();
-
-            // update my FirstUnchosenIndex in this.server_server_FirstUnchosenIndex
-            this.server_FirstUnchosenIndex.put(this.address(), this.firstUnchosenIndex);
         }
 
     }

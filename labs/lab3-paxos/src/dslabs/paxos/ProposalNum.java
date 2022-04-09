@@ -1,7 +1,9 @@
 package dslabs.paxos;
+import java.io.Serializable;
+import lombok.Data;
 
-
-public class ProposalNum {
+@Data
+public class ProposalNum implements Serializable {
     public final int roundNum;
     public final int ServerID;
 
