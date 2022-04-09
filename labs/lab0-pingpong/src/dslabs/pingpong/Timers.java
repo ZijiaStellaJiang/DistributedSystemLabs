@@ -6,6 +6,6 @@ import lombok.Data;
 
 @Data
 final class PingTimer implements Timer {
-    static final int RETRY_MILLIS = 10;
+    static int RETRY_MILLIS = 10;
     private final Ping ping;
 }
