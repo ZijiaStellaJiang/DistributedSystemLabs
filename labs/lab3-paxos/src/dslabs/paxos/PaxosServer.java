@@ -31,6 +31,7 @@ public class PaxosServer extends Node {
     private Address leaderAddress;
     private final int quorum;
     private final PaxosSlotNumPointer slotNumPointer;
+    private boolean leaderElection;
     private int roundNum;
     private int serverId;
     private int state;
@@ -58,6 +59,7 @@ public class PaxosServer extends Node {
         this.state = 0;
         this.quorum = servers.length / 2 + 1;
 
+//        this.leaderElection = true;
         // temporarily make the last one to be the leader,
         // leader election remains to be implemented
         this.leaderAddress = servers[servers.length - 1];
@@ -118,6 +120,9 @@ public class PaxosServer extends Node {
     // Your code here...
     private void onHeartbeatTimer(HeartbeatTimer t){
         if (state == 1) {
+            // self check if any slot should be chosen
+            checkQuorum();
+            // broadcast
             broadcast(new LeaderMessage(log, slotNumPointer));
         } else if (state == 0) {
             send(new FollowerMessage(log, slotNumPointer), leaderAddress);
@@ -129,6 +134,19 @@ public class PaxosServer extends Node {
         Utils
        -----------------------------------------------------------------------*/
     // Your code here...
+    private void checkQuorum(){
+        for ( int i = slotNumPointer.firstUnchosenSlotNum(); i <=
+                slotNumPointer.lastNonEmptySlotNum(); i++){
+            if (log.containsKey(i)){
+                PaxosLogSlot slot = log.get(i);
+                if (slot.status().equals(PaxosLogSlotStatus.ACCEPTED) && slot.acceptors().size() >= quorum){
+                    slot.status(PaxosLogSlotStatus.CHOSEN);
+                    app.execute(slot.amoCommand());
+                }
+            }
+        }
+    }
+
     private void updateExecuteToNum(FollowerMessage fm, Address sender){
         PaxosSlotNumPointer followerPointer = fm.slotNumPointer();
         firstUnchosenSlotNumMap.put(sender, followerPointer.firstUnchosenSlotNum());
