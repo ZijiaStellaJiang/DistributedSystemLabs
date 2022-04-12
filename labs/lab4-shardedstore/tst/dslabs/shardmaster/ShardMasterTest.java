@@ -135,6 +135,13 @@ public class ShardMasterTest {
         for (Integer gid : config.groupInfo().keySet()) {
             Set<Integer> shards = config.groupInfo().get(gid).getRight();
             for (int s : shards) {
+                if (seen.contains(s)) {
+                    System.out.println(s);
+                    System.out.println(gid);
+                    System.out.println(config.groupInfo().keySet().toString());
+                    System.out.println(shards.toString());
+                    System.out.println(seen.toString());
+                }
                 assertFalse(seen.contains(s));
                 seen.add(s);
             }
@@ -332,7 +339,8 @@ public class ShardMasterTest {
             assertEquals(remaining, config.groupInfo().get(1).getRight());
         }
 
-        execute(new Join(3, group(3)));
+        Join j = new Join(3, group(3));
+        execute(j);
         ShardConfig next = getLatest(true);
         checkConfig(next, 1, 2, 3);
     }

@@ -21,3 +21,9 @@ Desktop.ini
 
 # analytics
 .usage-database.db
+
+# draft
+draft/
+
+# Test
+*/ShardMasterTest.java
