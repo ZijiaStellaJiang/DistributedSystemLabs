@@ -34,7 +34,15 @@ public final class AMOApplication<T extends Application>
 
         Address sender = amoCommand.sender();
         // Your code here...
-        if (!alreadyExecuted(amoCommand)) {
+
+        // for handle lab4 Query non-AMO command
+        if (amoCommand.sequenceNum == -4) {
+            Result r = application.execute(amoCommand.command());
+            return new AMOResult(r, amoCommand.sequenceNum());
+        }
+
+        // for lab1-3 AMO command
+        else if (!alreadyExecuted(amoCommand)) {
             Result r = application.execute(amoCommand.command());
             addressLastSeqNumMap.put(sender, amoCommand.sequenceNum());
             addressLastAmoResultMap.put(sender, new AMOResult(r, amoCommand.sequenceNum()));

@@ -1,7 +1,6 @@
 package dslabs.paxos;
 
 import dslabs.framework.Command;
-import dslabs.framework.Message;
 import dslabs.framework.Timer;
 import lombok.Data;
 

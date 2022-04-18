@@ -11,3 +11,7 @@ final class ClientTimer implements Timer {
 }
 
 // Your code here...
+@Data
+final class QueryTimer implements Timer {
+    static final int QUERY_PERIODIC_TIMER = 25;
+}

@@ -89,6 +89,8 @@ public class PaxosServer extends Node {
     public void init() {
         // Your code here...
         // broadcast heartbeat to all other servers
+        if (servers.length == 1) return;
+
         broadcast(new Heartbeat(this.roundNum, this.serverID, this.address(), this.voteID, this.firstUnchosenIndex, this.server_FirstUnchosenIndex, this.server_LogForFirstUnchosenIndex));
         HeartbeatTimer t = new HeartbeatTimer();
         t.leaderTolerate(true);
@@ -219,7 +221,7 @@ public class PaxosServer extends Node {
         // test case checks if multiple client can get the same reply.
         AMOCommand command = m.command();
 
-        if (app.alreadyExecuted(command)) {
+        if (servers.length == 1 || app.alreadyExecuted(command)) {
             AMOResult r = app.execute(m.command());
             send(new PaxosReply(r), m.command().sender);
             return;

@@ -1,25 +1,15 @@
-package dslabs.paxos;
+package dslabs.underlyingPaxos;
+
 
 // Your code here...
 import dslabs.atmostonce.AMOCommand;
 import dslabs.atmostonce.AMOResult;
 import dslabs.framework.Address;
 import dslabs.framework.Message;
+import dslabs.paxos.Log;
+import dslabs.paxos.ProposalNum;
 import java.util.Map;
 import lombok.Data;
-
-///* -------------------------------------------------------------------------
-//    Client-Server Messages
-//   -----------------------------------------------------------------------*/
-//@Data
-//class Request implements Message {
-//    private final AMOCommand command;
-//}
-//
-//@Data
-//class Reply implements Message {
-//    private final AMOResult result;
-//}
 
 /* -------------------------------------------------------------------------
     Heartbeat Messages
