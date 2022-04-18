@@ -74,6 +74,7 @@ public class ShardStoreClient extends ShardStoreNode implements Client {
     }
 
     // Your code here...
+    // handle query result from paxosed shardMaster to update local shardConfig state
     private synchronized void handlePaxosReply(PaxosReply m, Address sender) {
         Result r = m.result().result;
         if (r instanceof ShardConfig) {

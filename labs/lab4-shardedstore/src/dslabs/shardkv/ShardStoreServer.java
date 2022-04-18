@@ -1,13 +1,20 @@
 package dslabs.shardkv;
 
+import dslabs.atmostonce.AMOCommand;
 import dslabs.framework.Address;
+import dslabs.framework.Result;
 import dslabs.paxos.PaxosReply;
+import dslabs.paxos.PaxosRequest;
+import dslabs.shardmaster.ShardMaster.Query;
+import dslabs.shardmaster.ShardMaster.ShardConfig;
 import dslabs.underlyingPaxos.Lab4PaxosServer;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
+
+import static dslabs.shardkv.QueryTimer.QUERY_PERIODIC_TIMER;
 
 
 @ToString(callSuper = true)
@@ -20,6 +27,10 @@ public class ShardStoreServer extends ShardStoreNode {
     private static final String PAXOS_ADDRESS_ID = "paxos";
     private Address paxosAddress;
     private Map<Integer, ShardState> myShardStates;
+    private final int querySeqNum = -4;
+    private final Query query = new Query(-1);
+    // ShardConfig is Map<Integer, Pair<Set<Address>, Set<Integer>>>
+    private ShardConfig shardConfig = null;
 
     /* -------------------------------------------------------------------------
         Construction and initialization
@@ -53,7 +64,9 @@ public class ShardStoreServer extends ShardStoreNode {
         paxosServer.init();
 
         // set Query send periodically to ShardMaster
-
+        broadcastToShardMasters(new PaxosRequest(new AMOCommand(query, querySeqNum, this.address())));
+        QueryTimer queryT = new QueryTimer();
+        set(queryT, QUERY_PERIODIC_TIMER);
 
     }
 
@@ -66,8 +79,15 @@ public class ShardStoreServer extends ShardStoreNode {
     }
 
 
-    private void handlePaxosReply(PaxosReply m, Address sender) {
-
+    // handle query result from paxosed shardMaster to update local shardConfig state
+    private synchronized void handlePaxosReply(PaxosReply m, Address sender) {
+        Result r = m.result().result;
+        if (r instanceof ShardConfig) {
+            ShardConfig newShardConfig = (ShardConfig) r;
+            if (shardConfig == null || newShardConfig.configNum() > shardConfig.configNum()) {
+                this.shardConfig = newShardConfig;
+            }
+        }
     }
 
     // Your code here...
