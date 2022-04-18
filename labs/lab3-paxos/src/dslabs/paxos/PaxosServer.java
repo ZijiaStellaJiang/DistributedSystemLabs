@@ -5,11 +5,11 @@ import dslabs.framework.Application;
 import dslabs.framework.Command;
 import dslabs.framework.Message;
 import dslabs.framework.Node;
+import dslabs.shardkv.PaxosResult;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.EqualsAndHashCode;
@@ -24,6 +24,7 @@ public class PaxosServer extends Node {
 
     // Your code here...
     private final AMOApplication<Application> app;
+    private final Address executor;
     private final Map<Integer, PaxosLogSlot> log;
     private final Map<AMOCommand, Integer> commandSlotNumMap;
     private final Set<Address> allServers;
@@ -46,6 +47,7 @@ public class PaxosServer extends Node {
 
         // Your code here...
         this.app = new AMOApplication<>(app);
+        this.executor = null;
         this.log = new HashMap<>();
         this.commandSlotNumMap = new HashMap<>();
         this.firstUnchosenSlotNumMap = new HashMap<>();
@@ -60,6 +62,34 @@ public class PaxosServer extends Node {
         this.quorum = servers.length / 2 + 1;
 
 //        this.leaderElection = true;
+        // temporarily make the last one to be the leader,
+        // leader election remains to be implemented
+        this.leaderAddress = servers[servers.length - 1];
+        if (address.equals(servers[servers.length-1])){
+            this.state = 1;
+        }
+    }
+
+    public PaxosServer(Address address, Address[] servers, Address executor){
+        super(address);
+        this.servers = servers;
+
+        this.app = null;
+        this.executor = executor;
+        this.log = new HashMap<>();
+        this.commandSlotNumMap = new HashMap<>();
+        this.firstUnchosenSlotNumMap = new HashMap<>();
+        for(Address server : servers){
+            firstUnchosenSlotNumMap.put(server, 1);
+        }
+        this.allServers = Arrays.stream(servers).collect(Collectors.toSet());
+        this.roundNum = 0;
+        this.serverId = findServerId();
+        this.slotNumPointer = new PaxosSlotNumPointer();
+        this.state = 0;
+        this.quorum = servers.length / 2 + 1;
+
+        //        this.leaderElection = true;
         // temporarily make the last one to be the leader,
         // leader election remains to be implemented
         this.leaderAddress = servers[servers.length - 1];
@@ -240,6 +270,14 @@ public class PaxosServer extends Node {
         }
         slotNumPointer.firstNonClearedSlotNum(executeToSlotNum+1);
         slotNumPointer.executeToSlotNum(executeToSlotNum);
+    }
+
+    private void executeProposal(AMOCommand c){
+        if (app == null) {
+            send(new PaxosResult(c), executor);
+        } else {
+            app.execute(c);
+        }
     }
 
     private void gc(int slotNum){

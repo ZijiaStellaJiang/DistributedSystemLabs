@@ -1,6 +1,10 @@
 package dslabs.shardkv;
 
+import dslabs.atmostonce.AMOApplication;
 import dslabs.framework.Address;
+import dslabs.framework.Application;
+import dslabs.kvstore.KVStore;
+import dslabs.paxos.PaxosServer;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
@@ -12,6 +16,9 @@ public class ShardStoreServer extends ShardStoreNode {
     private final int groupId;
 
     // Your code here...
+    private static final String PAXOS_ADDRESS_ID = "paxos";
+    private Address paxosAddress;
+    private final AMOApplication<Application> app;
 
     /* -------------------------------------------------------------------------
         Construction and initialization
@@ -23,11 +30,23 @@ public class ShardStoreServer extends ShardStoreNode {
         this.groupId = groupId;
 
         // Your code here...
+        this.app = new AMOApplication<>(new KVStore());
     }
 
     @Override
     public void init() {
         // Your code here...
+        // Setup Paxos
+        paxosAddress = Address.subAddress(address(), PAXOS_ADDRESS_ID);
+
+        Address[] paxosAddresses = new Address[group.length];
+        for (int i = 0; i < paxosAddresses.length; i++) {
+            paxosAddresses[i] = Address.subAddress(group[i], PAXOS_ADDRESS_ID);
+        }
+
+        PaxosServer paxosServer = new PaxosServer(paxosAddress, paxosAddresses, address());
+        addSubNode(paxosServer);
+        paxosServer.init();
     }
 
 
