@@ -8,6 +8,7 @@ import dslabs.framework.Result;
 import dslabs.kvstore.KVStore.SingleKeyCommand;
 import dslabs.paxos.PaxosReply;
 import dslabs.paxos.PaxosRequest;
+import dslabs.shardmaster.ShardMaster.Error;
 import dslabs.shardmaster.ShardMaster.Query;
 import dslabs.shardmaster.ShardMaster.ShardConfig;
 import java.util.Set;
@@ -102,8 +103,12 @@ public class ShardStoreClient extends ShardStoreNode implements Client {
                                                     Address sender) {
         // Your code here...
         if (m.result().sequenceNum == sequenceNum) {
-            result = m.result().result;
-            notify();
+            if (m.result().result instanceof Error) {
+                broadcastToShardMasters(new PaxosRequest(new AMOCommand(query, querySeqNum, this.address())));
+            } else {
+                result = m.result().result;
+                notify();
+            }
         }
 
     }
