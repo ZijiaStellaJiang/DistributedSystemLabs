@@ -32,7 +32,7 @@ public class PaxosServer extends Node {
     private Address leaderAddress;
     private final int quorum;
     private final PaxosSlotNumPointer slotNumPointer;
-    private boolean leaderElection;
+    private boolean inElection;
     private int roundNum;
     private int serverId;
     private int state;
@@ -144,6 +144,20 @@ public class PaxosServer extends Node {
         }
     }
 
+    private void handleElectionRequest(ElectionRequest er, Address sender) {
+        if (inElection) {
+
+        }
+    }
+
+    private void handleElectionResponse(ElectionResponse er, Address sender) {
+
+    }
+
+    private void handleLeaderAnnounce(LeaderAnnounce la, Address sender) {
+
+    }
+
     /* -------------------------------------------------------------------------
         Timer Handlers
        -----------------------------------------------------------------------*/
@@ -171,7 +185,7 @@ public class PaxosServer extends Node {
                 PaxosLogSlot slot = log.get(i);
                 if (slot.status().equals(PaxosLogSlotStatus.ACCEPTED) && slot.acceptors().size() >= quorum){
                     slot.status(PaxosLogSlotStatus.CHOSEN);
-                    app.execute(slot.amoCommand());
+                    executeProposal(slot.amoCommand());
                 }
             }
         }
@@ -205,7 +219,7 @@ public class PaxosServer extends Node {
                         leaderSlot.acceptors().add(sender);
                         if (leaderSlot.acceptors().size() >= quorum){
                             leaderSlot.status(PaxosLogSlotStatus.CHOSEN);
-                            app.execute(leaderSlot.amoCommand());
+                            executeProposal(leaderSlot.amoCommand());
                         }
                     }
                 }
@@ -263,7 +277,7 @@ public class PaxosServer extends Node {
             assert(leaderSlot!=null && leaderSlot.status().equals(PaxosLogSlotStatus.CHOSEN));
             PaxosLogSlot mySlot = log.get(executeFromSlotNum);
             assert(mySlot!=null); // and the status should be either accepted or chosen
-            app.execute(leaderSlot.amoCommand());
+            executeProposal(leaderSlot.amoCommand());
 
             gc(executeFromSlotNum);
             executeFromSlotNum++;

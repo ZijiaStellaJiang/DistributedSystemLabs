@@ -5,13 +5,28 @@ import java.util.Map;
 import lombok.Data;
 
 @Data
-class LeaderMessage implements Message{
+final class LeaderMessage implements Message{
     private final Map<Integer, PaxosLogSlot> log;
     private final PaxosSlotNumPointer slotNumPointer;
 }
 
 @Data
-class FollowerMessage implements Message{
+final class FollowerMessage implements Message{
     private final Map<Integer, PaxosLogSlot> log;
     private final PaxosSlotNumPointer slotNumPointer;
+}
+
+@Data
+final class ElectionRequest implements Message {
+    private final int serverId;
+}
+
+@Data
+final class ElectionResponse implements Message {
+    private final int serverId;
+}
+
+@Data
+final class LeaderAnnounce implements Message {
+    private final int serverId;
 }
