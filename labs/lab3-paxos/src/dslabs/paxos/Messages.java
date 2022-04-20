@@ -18,6 +18,7 @@ final class FollowerMessage implements Message{
 
 @Data
 final class ElectionRequest implements Message {
+    private final int roundNum;
     private final int serverId;
 }
 
@@ -28,5 +29,6 @@ final class ElectionResponse implements Message {
 
 @Data
 final class LeaderAnnounce implements Message {
+    private final int roundNum;
     private final int serverId;
 }

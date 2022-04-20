@@ -32,11 +32,10 @@ public class PaxosServer extends Node {
     private Address leaderAddress;
     private final int quorum;
     private final PaxosSlotNumPointer slotNumPointer;
-    private boolean inElection;
     private int roundNum;
     private int serverId;
     private int state;
-    //0: follower, 1: leader
+    //0: follower, 1: leader, 2: in election
 
     /* -------------------------------------------------------------------------
         Construction and Initialization
@@ -70,7 +69,7 @@ public class PaxosServer extends Node {
         }
     }
 
-    public PaxosServer(Address address, Address[] servers, Address executor){
+    public PaxosServer(Address address, Address[] servers, Address executor) {
         super(address);
         this.servers = servers;
 
@@ -110,6 +109,10 @@ public class PaxosServer extends Node {
        -----------------------------------------------------------------------*/
     private void handlePaxosRequest(PaxosRequest m, Address sender) {
         // Your code here...
+        if (state == 2) {
+            // in election
+            return;
+        }
         AMOCommand amoCommand = m.amoCommand();
         if (app.alreadyExecuted(amoCommand)){
             // if the command has been executed, return the result
@@ -129,7 +132,7 @@ public class PaxosServer extends Node {
 
     // Your code here...
 
-    private void handleLeaderMessage(LeaderMessage lm, Address sender){
+    private void handleLeaderMessage(LeaderMessage lm, Address sender) {
         if (state == 0 && isLeader(sender)){
             executeAndGC(lm);
             updateFollowerLog(lm);
@@ -137,7 +140,7 @@ public class PaxosServer extends Node {
         }
     }
 
-    private void handleFollowerMessage(FollowerMessage fm, Address sender){
+    private void handleFollowerMessage(FollowerMessage fm, Address sender) {
         if (state == 1 && isFollower(sender)) {
             updateLeaderLog(fm, sender);
             updateExecuteToNum(fm, sender);
@@ -145,7 +148,22 @@ public class PaxosServer extends Node {
     }
 
     private void handleElectionRequest(ElectionRequest er, Address sender) {
-        if (inElection) {
+        if (!oneOfUs(sender)) {
+            return;
+        }
+        int requestRound = er.roundNum();
+        if (requestRound < roundNum) {
+            // stale request
+            if (state == 1) {
+                // if is leader, send announcement
+                send(new LeaderAnnounce(roundNum, serverId), sender);
+            }
+            // if in election, will invite him too,
+            // by broadcasting my election request
+        } else if (state != 2) {
+            state = 2;
+            broadcast(new ElectionRequest(roundNum, serverId));
+        } else {
 
         }
     }
@@ -162,7 +180,7 @@ public class PaxosServer extends Node {
         Timer Handlers
        -----------------------------------------------------------------------*/
     // Your code here...
-    private void onHeartbeatTimer(HeartbeatTimer t){
+    private void onHeartbeatTimer(HeartbeatTimer t) {
         if (state == 1) {
             // self check if any slot should be chosen
             checkQuorum();
@@ -178,7 +196,7 @@ public class PaxosServer extends Node {
         Utils
        -----------------------------------------------------------------------*/
     // Your code here...
-    private void checkQuorum(){
+    private void checkQuorum() {
         for ( int i = slotNumPointer.firstUnchosenSlotNum(); i <=
                 slotNumPointer.lastNonEmptySlotNum(); i++){
             if (log.containsKey(i)){
@@ -191,7 +209,7 @@ public class PaxosServer extends Node {
         }
     }
 
-    private void updateExecuteToNum(FollowerMessage fm, Address sender){
+    private void updateExecuteToNum(FollowerMessage fm, Address sender) {
         PaxosSlotNumPointer followerPointer = fm.slotNumPointer();
         firstUnchosenSlotNumMap.put(sender, followerPointer.firstUnchosenSlotNum());
         int newExecuteToNum = followerPointer.firstUnchosenSlotNum() - 1;
@@ -203,7 +221,7 @@ public class PaxosServer extends Node {
         }
     }
 
-    private void updateLeaderLog(FollowerMessage fm, Address sender){
+    private void updateLeaderLog(FollowerMessage fm, Address sender) {
         Map<Integer, PaxosLogSlot> followerLog = fm.log();
         for(Integer slotNum : followerLog.keySet()){
             if (slotNum >= slotNumPointer.firstUnchosenSlotNum()){
@@ -227,7 +245,7 @@ public class PaxosServer extends Node {
         }
     }
 
-    private void updateFollowerSlotNumPointer(){
+    private void updateFollowerSlotNumPointer() {
         int newFirstUnchosenSlotNum = slotNumPointer.firstUnchosenSlotNum();
         int newFirstEmptySlotNum = slotNumPointer.firstEmptySlotNum();
         while(log.containsKey(newFirstEmptySlotNum)){
@@ -240,7 +258,7 @@ public class PaxosServer extends Node {
         slotNumPointer.firstEmptySlotNum(newFirstEmptySlotNum);
     }
 
-    private void updateFollowerLog(LeaderMessage lm){
+    private void updateFollowerLog(LeaderMessage lm) {
         Map<Integer, PaxosLogSlot> leaderLog = lm.log();
         int newLastNonEmptySlotNum = slotNumPointer.lastNonEmptySlotNum();
         for (Integer slotNum : leaderLog.keySet()){
@@ -268,7 +286,7 @@ public class PaxosServer extends Node {
         slotNumPointer.lastNonEmptySlotNum(newLastNonEmptySlotNum);
     }
 
-    private void executeAndGC(LeaderMessage lm){
+    private void executeAndGC(LeaderMessage lm) {
         Map<Integer, PaxosLogSlot> leaderLog = lm.log();
         int executeToSlotNum = lm.slotNumPointer().executeToSlotNum();
         int executeFromSlotNum = slotNumPointer.firstNonClearedSlotNum();
@@ -286,7 +304,7 @@ public class PaxosServer extends Node {
         slotNumPointer.executeToSlotNum(executeToSlotNum);
     }
 
-    private void executeProposal(AMOCommand c){
+    private void executeProposal(AMOCommand c) {
         if (app == null) {
             send(new PaxosResult(c), executor);
         } else {
@@ -294,14 +312,14 @@ public class PaxosServer extends Node {
         }
     }
 
-    private void gc(int slotNum){
+    private void gc(int slotNum) {
         PaxosLogSlot slot = log.get(slotNum);
         assert(slot!=null);
         commandSlotNumMap.remove(slot.amoCommand());
         log.remove(slotNum);
     }
 
-    private void broadcast(Message m){
+    private void broadcast(Message m) {
         for(Address paxosServer : servers){
             if(!paxosServer.equals(this.address())){
                 send(m, paxosServer);
@@ -309,7 +327,7 @@ public class PaxosServer extends Node {
         }
     }
 
-    private int findServerId(){
+    private int findServerId() {
         for(int i = 0;i<servers.length;i++){
             if(servers[i].equals(this.address())){
                 return i;
@@ -318,7 +336,7 @@ public class PaxosServer extends Node {
         return -1;
     }
 
-    private void allocateSlot(int slotNum, AMOCommand amoCommand){
+    private void allocateSlot(int slotNum, AMOCommand amoCommand) {
         if (!commandSlotNumMap.containsKey(amoCommand)){
             commandSlotNumMap.put(amoCommand, slotNum);
             PaxosLogSlot logSlot = new PaxosLogSlot(roundNum, serverId, slotNum, PaxosLogSlotStatus.ACCEPTED, new HashSet<>(), amoCommand);
@@ -328,18 +346,22 @@ public class PaxosServer extends Node {
         }
     }
 
-    private void updateFirstEmptySlotNum(){
+    private void updateFirstEmptySlotNum() {
         while(!status(slotNumPointer.firstEmptySlotNum()).equals(PaxosLogSlotStatus.EMPTY)){
             slotNumPointer.firstEmptySlotNum(slotNumPointer.firstEmptySlotNum() + 1);
         }
     }
 
-    private boolean isLeader(Address address){
-        return leaderAddress.equals(address);
+    private boolean isLeader(Address address) {
+        return leaderAddress.equals(address) && allServers.contains(address);
     }
 
-    private boolean isFollower(Address address){
+    private boolean isFollower(Address address) {
         return !leaderAddress.equals(address) && allServers.contains(address);
+    }
+
+    private boolean oneOfUs(Address address) {
+        return allServers.contains(address);
     }
 
 
