@@ -1,5 +1,6 @@
 package dslabs.paxos;
 
+import dslabs.framework.Address;
 import dslabs.framework.Message;
 import java.util.Map;
 import lombok.Data;
@@ -19,16 +20,18 @@ final class FollowerMessage implements Message{
 @Data
 final class ElectionRequest implements Message {
     private final int roundNum;
-    private final int serverId;
+    private final int potentialLeader;
 }
 
 @Data
-final class ElectionResponse implements Message {
-    private final int serverId;
+final class LeaderAck implements Message {
+    private final int roundNum;
+    private final Address follower;
 }
 
 @Data
 final class LeaderAnnounce implements Message {
     private final int roundNum;
     private final int serverId;
+    private final Address leaderAddress;
 }

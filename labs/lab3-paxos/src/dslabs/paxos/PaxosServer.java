@@ -33,9 +33,12 @@ public class PaxosServer extends Node {
     private final int quorum;
     private final PaxosSlotNumPointer slotNumPointer;
     private int roundNum;
-    private int serverId;
+    private final int serverId;
     private int state;
     //0: follower, 1: leader, 2: in election
+    private ElectionRequest myVote;
+    private boolean leaderOnline;
+    private Set<Address> voters;
 
     /* -------------------------------------------------------------------------
         Construction and Initialization
@@ -67,6 +70,8 @@ public class PaxosServer extends Node {
         if (address.equals(servers[servers.length-1])){
             this.state = 1;
         }
+        this.leaderOnline = true;
+        this.voters = new HashSet<>();
     }
 
     public PaxosServer(Address address, Address[] servers, Address executor) {
@@ -95,6 +100,8 @@ public class PaxosServer extends Node {
         if (address.equals(servers[servers.length-1])){
             this.state = 1;
         }
+        this.leaderOnline = true;
+        this.voters = new HashSet<>();
     }
 
     @Override
@@ -134,6 +141,7 @@ public class PaxosServer extends Node {
 
     private void handleLeaderMessage(LeaderMessage lm, Address sender) {
         if (state == 0 && isLeader(sender)){
+            leaderOnline = true;
             executeAndGC(lm);
             updateFollowerLog(lm);
             updateFollowerSlotNumPointer();
@@ -152,28 +160,54 @@ public class PaxosServer extends Node {
             return;
         }
         int requestRound = er.roundNum();
+        int requestLeader = er.potentialLeader();
         if (requestRound < roundNum) {
             // stale request
             if (state == 1) {
                 // if is leader, send announcement
-                send(new LeaderAnnounce(roundNum, serverId), sender);
+                send(new LeaderAnnounce(roundNum, serverId, this.address()), sender);
             }
             // if in election, will invite him too,
             // by broadcasting my election request
         } else if (state != 2) {
+            // not in election
+            // enter election, propose leader
+            // use requestRound, since it's >= myRound
             state = 2;
-            broadcast(new ElectionRequest(roundNum, serverId));
+            myVote = new ElectionRequest(requestRound, Math.max(requestLeader, serverId));
+            set(new ElectionTimer(), ElectionTimer.ELECTION_MILLIS);
         } else {
-
+            // already in election
+            // choose leader
+            // use larger roundNum between myclaim's and request's
+            if (myVote.roundNum() < requestRound) {
+                myVote = new ElectionRequest(requestRound, requestLeader);
+            } else if (myVote.roundNum() == requestRound) {
+                if (requestLeader == serverId) {
+                    voters.add(sender);
+                }
+                myVote = new ElectionRequest(requestRound, Math.max(requestLeader, myVote.potentialLeader()));
+            }
         }
     }
 
-    private void handleElectionResponse(ElectionResponse er, Address sender) {
-
+    private void handleLeaderAnnounce(LeaderAnnounce la, Address sender) {
+        if (state == 2 && oneOfUs(sender) && la.roundNum()>=roundNum) {
+            leaderAddress = la.leaderAddress();
+            roundNum = la.roundNum();
+            state = 0;
+            leaderOnline = true;
+            voters = new HashSet<>();
+            send(new LeaderAck(roundNum, this.address()), leaderAddress);
+        } else if (state == 0 && oneOfUs(sender) && leaderAddress.equals(la.leaderAddress())) {
+            send(new LeaderAck(roundNum, this.address()), leaderAddress);
+        }
     }
 
-    private void handleLeaderAnnounce(LeaderAnnounce la, Address sender) {
-
+    private void handleLeaderAck(LeaderAck la, Address sender) {
+        if (state == 1 && oneOfUs(sender) && la.roundNum() == roundNum && voters.size() < quorum) {
+            voters.add(la.follower());
+        }
     }
 
     /* -------------------------------------------------------------------------
@@ -187,9 +221,43 @@ public class PaxosServer extends Node {
             // broadcast
             broadcast(new LeaderMessage(log, slotNumPointer));
         } else if (state == 0) {
-            send(new FollowerMessage(log, slotNumPointer), leaderAddress);
+            if (leaderOnline) {
+                send(new FollowerMessage(log, slotNumPointer), leaderAddress);
+            } else {
+                state = 2;
+                myVote = new ElectionRequest(roundNum, serverId);
+                broadcast(myVote);
+                set(new ElectionTimer(), ElectionTimer.ELECTION_MILLIS);
+            }
         }
         set(t,HeartbeatTimer.HEARTBEAT_MILLIS);
+        leaderOnline = false;
+    }
+
+    private void onElectionTimer(ElectionTimer t) {
+        if (state == 2) {
+            // still in election
+            if (voters.size() >= quorum) {
+                state = 1;
+                roundNum = myVote.roundNum() + 1;
+                voters = new HashSet<>();
+                broadcast(new LeaderAnnounce(roundNum, serverId, this.address()));
+                set(new LeaderAnnounceTimer(), LeaderAnnounceTimer.LEADER_ACK_MILLIS);
+            } else {
+                broadcast(myVote);
+                voters = new HashSet<>();
+                set(t, ElectionTimer.ELECTION_MILLIS);
+            }
+        }
+    }
+
+    private void onLeaderAnnounceTimer(LeaderAnnounceTimer t) {
+        if (voters.size() < quorum) {
+            broadcast(new LeaderAnnounce(roundNum, serverId, this.address()));
+            set(new LeaderAnnounceTimer(), LeaderAnnounceTimer.LEADER_ACK_MILLIS);
+        } else {
+            voters = new HashSet<>();
+        }
     }
 
     /* -------------------------------------------------------------------------
