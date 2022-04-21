@@ -252,11 +252,13 @@ public class PaxosServer extends Node {
     }
 
     private void onLeaderAnnounceTimer(LeaderAnnounceTimer t) {
-        if (voters.size() < quorum) {
-            broadcast(new LeaderAnnounce(roundNum, serverId, this.address()));
-            set(new LeaderAnnounceTimer(), LeaderAnnounceTimer.LEADER_ACK_MILLIS);
-        } else {
-            voters = new HashSet<>();
+        if (state == 1) {
+            if (voters.size() < quorum) {
+                broadcast(new LeaderAnnounce(roundNum, serverId, this.address()));
+                set(new LeaderAnnounceTimer(), LeaderAnnounceTimer.LEADER_ACK_MILLIS);
+            } else {
+                voters = new HashSet<>();
+            }
         }
     }
 
