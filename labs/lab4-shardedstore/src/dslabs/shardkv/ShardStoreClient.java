@@ -61,16 +61,21 @@ public class ShardStoreClient extends ShardStoreNode implements Client {
             this.command = (SingleKeyCommand) command;
             this.result = null;
 
-            // get shardNum and then find the serversGroup responsible for that shard
-            int shardNo = keyToShard(this.command.key());
-            int groupId = findServersGroup(shardNo);
-            this.serversGroup = shardConfig.groupInfo().get(groupId).getLeft();
+            if (shardConfig == null) {
+                broadcastToShardMasters(new PaxosRequest(new AMOCommand(query, querySeqNum, this.address())));
+            }
+            else {
+                // get shardNum and then find the serversGroup responsible for that shard
+                int shardNo = keyToShard(this.command.key());
+                int groupId = findServersGroup(shardNo);
+                this.serversGroup = shardConfig.groupInfo().get(groupId).getLeft();
 
-            // broadcast client request to serversGroup
-            // broadcast command to all server
-            sequenceNum++;
-            for (Address server : serversGroup) {
-                send(new ShardStoreRequest(new AMOCommand(command, sequenceNum, this.address())), server);
+                // broadcast client request to serversGroup
+                // broadcast command to all server
+                sequenceNum++;
+                for (Address server : serversGroup) {
+                    send(new ShardStoreRequest(new AMOCommand(command, sequenceNum, this.address())), server);
+                }
             }
 
             // set a timer
@@ -129,12 +134,26 @@ public class ShardStoreClient extends ShardStoreNode implements Client {
        -----------------------------------------------------------------------*/
     private synchronized void onClientTimer(ClientTimer t) {
         // Your code here...
+        if (shardConfig == null && serversGroup == null) {
+            broadcastToShardMasters(new PaxosRequest(new AMOCommand(query, querySeqNum, this.address())));
+            set(t, CLIENT_RETRY_MILLIS);
+            return;
+        } else if (serversGroup == null) {
+            int shardNo = keyToShard(this.command.key());
+            int groupId = findServersGroup(shardNo);
+            this.serversGroup = shardConfig.groupInfo().get(groupId).getLeft();
+        }
         if (command.equals(t.command()) && result == null) {
             for (Address server : serversGroup) {
-                send(new PaxosRequest(new AMOCommand(command, sequenceNum, this.address())), server);
+                send(new ShardStoreRequest(new AMOCommand(command, sequenceNum, this.address())), server);
             }
             set(t, CLIENT_RETRY_MILLIS);
         }
+    }
+
+    private void onQueryTimer(QueryTimer t) {
+        broadcastToShardMasters(new PaxosRequest(new AMOCommand(query, querySeqNum, this.address())));
+        set(t, QUERY_PERIODIC_TIMER);
     }
 
     /* -------------------------------------------------------------------------

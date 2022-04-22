@@ -36,6 +36,10 @@ public final class AMOApplication<T extends Application>
         // Your code here...
 
         // for handle lab4 Query non-AMO command
+        /*
+           details: lab4 part2 shardMaster is encapsulated as the app in PaxosServer to handle Query requests from ShardClient and ShardServer;
+           and we don't want to add sequence number on Query requests.
+         */
         if (amoCommand.sequenceNum == -4) {
             Result r = application.execute(amoCommand.command());
             return new AMOResult(r, amoCommand.sequenceNum());
