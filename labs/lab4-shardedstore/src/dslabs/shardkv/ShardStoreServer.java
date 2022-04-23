@@ -123,7 +123,7 @@ public class ShardStoreServer extends ShardStoreNode {
 
     // Your code here...
     // handle message from underlying paxos
-    private void handleShardServerInternalReply(ShardServerInternalReply m) {
+    private void handleShardServerInternalReply(ShardServerInternalReply m, Address sender) {
         int sequenceNum = m.command().sequenceNum;
         if (sequenceNum != -4) {
             if (m.command().command instanceof SingleKeyCommand) {
@@ -136,6 +136,7 @@ public class ShardStoreServer extends ShardStoreNode {
             }
         } else {
             // shards exchange between server groups
+
         }
     }
 
@@ -169,7 +170,11 @@ public class ShardStoreServer extends ShardStoreNode {
      */
     private void initializeMyShardStates(Map<Integer, Pair<Set<Address>, Set<Integer>>> groupInfo) {
         myShardStates = new HashMap<>();
-        Set<Integer> myShards = groupInfo.get(groupId).getRight();
+        Pair<Set<Address>, Set<Integer>> pair = groupInfo.get(groupId);
+        if (pair == null) {
+            return;
+        }
+        Set<Integer> myShards = pair.getRight();
         for (Integer shardId : myShards) {
             myShardStates.put(shardId, new ShardState(shardId));
         }
