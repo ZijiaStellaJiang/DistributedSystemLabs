@@ -13,8 +13,10 @@ import dslabs.shardmaster.ShardMaster.Query;
 import dslabs.shardmaster.ShardMaster.ShardConfig;
 import dslabs.underlyingPaxos.Lab4PaxosServer;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 import org.apache.commons.lang3.tuple.Pair;
@@ -37,6 +39,7 @@ public class ShardStoreServer extends ShardStoreNode {
     private final Query queryForInitialConfig = new Query(0);
     // ShardConfig is Map<Integer, Pair<Set<Address>, Set<Integer>>>
     private ShardConfig shardConfig = null;
+    private volatile ShardExchanger shardExchanger = null;
 
     /* -------------------------------------------------------------------------
         Construction and initialization
@@ -113,9 +116,13 @@ public class ShardStoreServer extends ShardStoreNode {
         if (r instanceof ShardConfig) {
             ShardConfig newShardConfig = (ShardConfig) r;
             if (shardConfig == null || newShardConfig.configNum() > shardConfig.configNum()) {
-                this.shardConfig = newShardConfig;
                 if (myShardStates == null && newShardConfig.configNum() == 0) {
+                    this.shardConfig = newShardConfig;
                     initializeMyShardStates(newShardConfig.groupInfo());
+                }else if(shardExchanger == null){
+                    // send reconfig command to paxos for consensus
+                    //handleMessage(new ShardServerInternalRequest(new AMOCommand(buildShardExchanger(shardConfig,myShardStates),querySeqNum,this.address())),paxosAddress);
+                    setShardExchanger(newShardConfig);
                 }
             }
         }
@@ -138,7 +145,42 @@ public class ShardStoreServer extends ShardStoreNode {
             // shards exchange between server groups
             // paxos 达成共识，store server执行
             // 向需要shard的server发送shardState
+//            if (m.command().command instanceof ShardExchanger) {
+//                ShardExchanger paxosedShardExchanger = (ShardExchanger) m.command().command;
+//                if (paxosedShardExchanger.configNum() == shardConfig.configNum()) {
+//                    // build shardExchanger according to new config
+//                    setShardExchanger();
+//                }
+//            }
+        }
+    }
 
+    private synchronized void handleShardPack(ShardPack sp, Address sender) {
+        if (sp.configNum() == shardConfig.configNum() && shardExchanger != null) {
+            for (ShardState shardState : sp.shards()) {
+                int shardId = shardState.shardId();
+                Set<Address> trustedSender = shardExchanger.receiveFrom().getOrDefault(shardId, new HashSet<>());
+                if (trustedSender.contains(sender)) {
+                    myShardStates.put(shardId, shardState);
+                    shardExchanger.receiveFrom().remove(shardId);
+                }
+            }
+            send(new ShardReceipt(shardConfig.configNum()), sender);
+        } else if (sp.configNum() == shardConfig.configNum() && shardExchanger == null) {
+            send(new ShardReceipt(shardConfig.configNum()), sender);
+        }
+    }
+
+    private synchronized void handleShardReceipt(ShardReceipt sr, Address sender) {
+        if (shardConfig.configNum() == sr.configNum()) {
+            for (Set<Address> addresses : new HashSet<>(shardExchanger.sendTo().keySet())) {
+                // find the group and remove sender from the toSend set
+                if (addresses.contains(sender)) {
+                    Pair<Set<Address>,Set<ShardState>> pair = shardExchanger.sendTo().get(addresses);
+                    pair.getLeft().remove(sender);
+                    shardExchanger.sendTo().put(addresses,pair);
+                }
+            }
         }
     }
 
@@ -151,10 +193,87 @@ public class ShardStoreServer extends ShardStoreNode {
         set(t, QUERY_PERIODIC_TIMER);
     }
 
+    private synchronized void onExchangeTimer(ExchangeTimer t) {
+        if (shardExchanger.sendTo().keySet().size() == 0 && shardExchanger.receiveFrom().size() == 0) {
+            shardExchanger = null;
+        } else {
+            if (shardExchanger.sendTo().keySet().size() != 0) {
+                sendShards();
+            }
+            set(t,ExchangeTimer.EXCHANGE_MILLIS);
+        }
+    }
     /* -------------------------------------------------------------------------
         Utils
        -----------------------------------------------------------------------*/
     // Your code here...
+    private synchronized void setShardExchanger(ShardConfig newShardConfig){
+        // find difference between shardConfig and myShardStates
+        // to build shardExchanger
+        shardExchanger = buildShardExchanger(newShardConfig, myShardStates);
+        this.shardConfig = newShardConfig;
+        sendShards();
+        set(new ExchangeTimer(), ExchangeTimer.EXCHANGE_MILLIS);
+    }
+
+    private synchronized void sendShards() {
+        Map<Set<Address>, Pair<Set<Address>,Set<ShardState>>> sendTo = new HashMap<>(shardExchanger.sendTo());
+        for (Set<Address>  addresses: sendTo.keySet()) {
+            ShardPack sp = new ShardPack(shardExchanger.configNum(), sendTo.get(addresses).getRight());
+            Set<Address> toSendAddresses = sendTo.get(addresses).getLeft();
+            if (!toSendAddresses.isEmpty()) {
+                for (Address address : toSendAddresses) {
+                    send(sp,address);
+                }
+            } else {
+                // once quorum received, remove from local and don't send anymore
+                for (ShardState shardState : sendTo.get(addresses).getRight()) {
+                    myShardStates.remove(shardState.shardId());
+                }
+                shardExchanger.sendTo().remove(addresses);
+            }
+        }
+    }
+
+    private ShardExchanger buildShardExchanger(ShardConfig newShardConfig, Map<Integer, ShardState> myShardStates) {
+        ShardExchanger se = new ShardExchanger(newShardConfig.configNum());
+        Set<Integer> newShards = newShardConfig.groupInfo().getOrDefault(groupId, Pair.of(new HashSet<>(), new HashSet<>())).getRight();
+        Map<ShardState, Set<Address>> toSend = new HashMap<>();
+        for (int shardId : myShardStates.keySet()) {
+            if (!newShards.contains(shardId)) {
+                // record in shardExchanger as toSend
+                toSend.put(myShardStates.get(shardId), getServerAddress(newShardConfig,shardId));
+            }
+        }
+        Map<Set<Address>, Pair<Set<Address>,Set<ShardState>>> sendTo = new HashMap<>();
+        for (ShardState shardState : toSend.keySet()) {
+            Pair<Set<Address>,Set<ShardState>> pair= sendTo.getOrDefault(toSend.get(shardState), Pair.of(new HashSet<>(toSend.get(shardState)), new HashSet<>()));
+            pair.getRight().add(shardState);
+            sendTo.put(toSend.get(shardState), pair);
+        }
+        se.sendTo(sendTo);
+        Map<Integer, Set<Address>> receiveFrom = new HashMap<>();
+        for (int shardId : newShards) {
+            if (!myShardStates.containsKey(shardId)) {
+                // record receiveFrom according to current shardConfig
+                receiveFrom.put(shardId, getServerAddress(this.shardConfig, shardId));
+            }
+        }
+        se.receiveFrom(receiveFrom);
+        return se;
+    }
+
+    private Set<Address> getServerAddress(ShardConfig shardConfig, int shardId) {
+        for (int groupId : shardConfig.groupInfo().keySet()) {
+            Pair<Set<Address>, Set<Integer>>
+                    serversToShards = shardConfig.groupInfo().get(groupId);
+            if (serversToShards.getRight().contains(shardId)) {
+                return new HashSet<>(serversToShards.getLeft());
+            }
+        }
+        return new HashSet<>();
+    }
+
     private int findServersGroup(int shardNo) {
         for (int groupId : shardConfig.groupInfo().keySet()) {
             Pair<Set<Address>, Set<Integer>>

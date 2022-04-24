@@ -3,6 +3,7 @@ package dslabs.shardkv;
 import dslabs.atmostonce.AMOCommand;
 import dslabs.atmostonce.AMOResult;
 import dslabs.framework.Message;
+import java.util.Set;
 import lombok.Data;
 
 /* -------------------------------------------------------------------------
@@ -23,10 +24,11 @@ final class ShardStoreReply implements Message {
 // Your code here...
 @Data
 final class ShardPack implements Message {
-
+    private final int configNum;
+    private final Set<ShardState> shards;
 }
 
 @Data
 final class ShardReceipt implements Message {
-
+    private final int configNum;
 }

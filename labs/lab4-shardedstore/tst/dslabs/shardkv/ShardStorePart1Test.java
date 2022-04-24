@@ -90,6 +90,7 @@ public final class ShardStorePart1Test extends ShardStoreBaseTest {
 
         // Add groups and check that keys are still there
         joinGroup(2, numServersPerGroup);
+        Thread.sleep(5000);
         joinGroup(3, numServersPerGroup);
         Thread.sleep(5000);
 

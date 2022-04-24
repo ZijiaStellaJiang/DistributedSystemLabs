@@ -4,6 +4,7 @@ import dslabs.atmostonce.AMOApplication;
 import dslabs.framework.Application;
 import dslabs.kvstore.KVStore;
 import lombok.Data;
+import lombok.ToString;
 
 @Data
 public class ShardState {

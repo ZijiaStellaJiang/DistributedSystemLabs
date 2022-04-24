@@ -18,3 +18,8 @@ final class ClientTimer implements Timer {
 final class QueryTimer implements Timer {
     static final int QUERY_PERIODIC_TIMER = 25;
 }
+
+@Data
+final class ExchangeTimer implements Timer {
+    static final int EXCHANGE_MILLIS = 50;
+}
