@@ -20,5 +20,13 @@ final class ShardStoreReply implements Message {
     private final AMOResult result;
 }
 
-
 // Your code here...
+@Data
+final class ShardPack implements Message {
+
+}
+
+@Data
+final class ShardReceipt implements Message {
+
+}

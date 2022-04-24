@@ -136,6 +136,8 @@ public class ShardStoreServer extends ShardStoreNode {
             }
         } else {
             // shards exchange between server groups
+            // paxos 达成共识，store server执行
+            // 向需要shard的server发送shardState
 
         }
     }
