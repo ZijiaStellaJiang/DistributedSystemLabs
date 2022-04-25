@@ -445,6 +445,7 @@ public class Lab4PaxosServer extends Node {
     private void updateFirstUnchosenIndex() {
         int i = this.firstUnchosenIndex + 1;
         while (this.log.get(i) != null && this.log.get(i).status != CHOSEN) {
+            handleMessage(new ShardServerInternalReply(this.log.get(i).command), shardStoreServer);
             i++;
         }
         this.firstUnchosenIndex = i;
