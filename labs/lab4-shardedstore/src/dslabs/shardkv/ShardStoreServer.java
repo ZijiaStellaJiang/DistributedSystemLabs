@@ -35,7 +35,6 @@ public class ShardStoreServer extends ShardStoreNode {
     private Address paxosAddress;
     private Map<Integer, ShardState> myShardStates = null;
     private final int querySeqNum = -4;
-    private final Query queryForLatestConfig = new Query(-1);
     private final Query queryForInitialConfig = new Query(0);
     // ShardConfig is Map<Integer, Pair<Set<Address>, Set<Integer>>>
     private ShardConfig shardConfig = null;
@@ -73,7 +72,7 @@ public class ShardStoreServer extends ShardStoreNode {
         paxosServer.init();
 
         // set Query send periodically to ShardMaster
-        broadcastToShardMasters(new PaxosRequest(new AMOCommand(queryForLatestConfig, querySeqNum, this.address())));
+        broadcastToShardMasters(new PaxosRequest(new AMOCommand(queryForInitialConfig, querySeqNum, this.address())));
         QueryTimer queryT = new QueryTimer();
         set(queryT, QUERY_PERIODIC_TIMER);
 
@@ -117,7 +116,7 @@ public class ShardStoreServer extends ShardStoreNode {
         Result r = m.result().result;
         if (r instanceof ShardConfig) {
             ShardConfig newShardConfig = (ShardConfig) r;
-            if (shardConfig == null || newShardConfig.configNum() > shardConfig.configNum()) {
+            if (shardConfig == null || newShardConfig.configNum() == shardConfig.configNum() + 1) {
                 if (myShardStates == null && newShardConfig.configNum() == 0) {
                     this.shardConfig = newShardConfig;
                     initializeMyShardStates(newShardConfig.groupInfo());
@@ -194,7 +193,13 @@ public class ShardStoreServer extends ShardStoreNode {
        -----------------------------------------------------------------------*/
     // Your code here...
     private void onQueryTimer(QueryTimer t) {
-        broadcastToShardMasters(new PaxosRequest(new AMOCommand(queryForLatestConfig, querySeqNum, this.address())));
+        if (!inReconfig) {
+            if (shardConfig == null) {
+                broadcastToShardMasters(new PaxosRequest(new AMOCommand(queryForInitialConfig, querySeqNum, this.address())));
+            } else {
+                broadcastToShardMasters(new PaxosRequest(new AMOCommand(new Query(shardConfig.configNum()+1), querySeqNum, this.address())));
+            }
+        }
         set(t, QUERY_PERIODIC_TIMER);
     }
 
@@ -229,7 +234,7 @@ public class ShardStoreServer extends ShardStoreNode {
         for (Set<Address>  addresses: sendTo.keySet()) {
             ShardPack sp = new ShardPack(shardExchanger.configNum(), sendTo.get(addresses).getRight());
             Set<Address> toSendAddresses = sendTo.get(addresses).getLeft();
-            if (!toSendAddresses.isEmpty()) {
+            if (toSendAddresses.size() * 2 > addresses.size()) {
                 for (Address address : toSendAddresses) {
                     send(sp,address);
                 }

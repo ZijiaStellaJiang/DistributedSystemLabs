@@ -6,7 +6,7 @@ import lombok.Data;
 
 @Data
 final class ClientTimer implements Timer {
-    static final int CLIENT_RETRY_MILLIS = 100;
+    static final int CLIENT_RETRY_MILLIS = 50;
 
     // Your code here...
     private final Command command;
@@ -16,10 +16,10 @@ final class ClientTimer implements Timer {
 // Your code here...
 @Data
 final class QueryTimer implements Timer {
-    static final int QUERY_PERIODIC_TIMER = 25;
+    static final int QUERY_PERIODIC_TIMER = 20;
 }
 
 @Data
 final class ExchangeTimer implements Timer {
-    static final int EXCHANGE_MILLIS = 50;
+    static final int EXCHANGE_MILLIS = 20;
 }
