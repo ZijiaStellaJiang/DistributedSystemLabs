@@ -39,7 +39,7 @@ public class ShardStoreServer extends ShardStoreNode {
     private final Query queryForInitialConfig = new Query(0);
     // ShardConfig is Map<Integer, Pair<Set<Address>, Set<Integer>>>
     private ShardConfig shardConfig = null;
-    private volatile ShardExchanger shardExchanger = null;
+    private ShardExchanger shardExchanger = null;
     private boolean inReconfig = false;
 
     /* -------------------------------------------------------------------------
@@ -113,7 +113,7 @@ public class ShardStoreServer extends ShardStoreNode {
 
 
     // handle query result from paxosed shardMaster to update local shardConfig state
-    private synchronized void handlePaxosReply(PaxosReply m, Address sender) {
+    private void handlePaxosReply(PaxosReply m, Address sender) {
         Result r = m.result().result;
         if (r instanceof ShardConfig) {
             ShardConfig newShardConfig = (ShardConfig) r;
@@ -121,10 +121,11 @@ public class ShardStoreServer extends ShardStoreNode {
                 if (myShardStates == null && newShardConfig.configNum() == 0) {
                     this.shardConfig = newShardConfig;
                     initializeMyShardStates(newShardConfig.groupInfo());
-                }else if(shardExchanger == null){
+                }else if(!inReconfig && shardExchanger == null){
                     // send reconfig command to paxos for consensus
-                    handleMessage(new ShardServerInternalRequest(new AMOCommand(buildShardExchanger(newShardConfig,myShardStates),querySeqNum,this.address())),paxosAddress);
+                    handleMessage(new ShardServerInternalRequest(new AMOCommand(new ReconfigCommand(newShardConfig),querySeqNum,this.address())),paxosAddress);
                     inReconfig = true;
+                    //setShardExchanger(buildShardExchanger(newShardConfig,myShardStates));
                 }
             }
         }
@@ -147,17 +148,17 @@ public class ShardStoreServer extends ShardStoreNode {
             // shards exchange between server groups
             // paxos 达成共识，store server执行
             // 向需要shard的server发送shardState
-            if (m.command().command instanceof ShardExchanger) {
-                ShardExchanger paxosedShardExchanger = (ShardExchanger) m.command().command;
-                if (paxosedShardExchanger.configNum() == shardConfig.configNum()+1) {
+            if (m.command().command instanceof ReconfigCommand) {
+                ReconfigCommand reconfigCommand = (ReconfigCommand) m.command().command;
+                if (inReconfig && shardExchanger == null && reconfigCommand.shardConfig().configNum() == shardConfig.configNum()+1) {
                     // build shardExchanger according to new config
-                    setShardExchanger(paxosedShardExchanger);
+                    setShardExchanger(reconfigCommand);
                 }
             }
         }
     }
 
-    private synchronized void handleShardPack(ShardPack sp, Address sender) {
+    private void handleShardPack(ShardPack sp, Address sender) {
         if (sp.configNum() == shardConfig.configNum() && shardExchanger != null) {
             for (ShardState shardState : sp.shards()) {
                 int shardId = shardState.shardId();
@@ -165,16 +166,18 @@ public class ShardStoreServer extends ShardStoreNode {
                 if (trustedSender.contains(sender)) {
                     myShardStates.put(shardId, shardState);
                     shardExchanger.receiveFrom().remove(shardId);
+                    for (Address provider : trustedSender) {
+                        send(new ShardReceipt(shardConfig.configNum()), provider);
+                    }
                 }
             }
-            send(new ShardReceipt(shardConfig.configNum()), sender);
         } else if (sp.configNum() == shardConfig.configNum() && shardExchanger == null) {
             send(new ShardReceipt(shardConfig.configNum()), sender);
         }
     }
 
-    private synchronized void handleShardReceipt(ShardReceipt sr, Address sender) {
-        if (shardConfig.configNum() == sr.configNum()) {
+    private void handleShardReceipt(ShardReceipt sr, Address sender) {
+        if (shardConfig.configNum() == sr.configNum() && shardExchanger!=null) {
             for (Set<Address> addresses : new HashSet<>(shardExchanger.sendTo().keySet())) {
                 // find the group and remove sender from the toSend set
                 if (addresses.contains(sender)) {
@@ -195,7 +198,8 @@ public class ShardStoreServer extends ShardStoreNode {
         set(t, QUERY_PERIODIC_TIMER);
     }
 
-    private synchronized void onExchangeTimer(ExchangeTimer t) {
+    private void onExchangeTimer(ExchangeTimer t) {
+        ShardExchanger se = this.shardExchanger;
         if (shardExchanger.sendTo().keySet().size() == 0 && shardExchanger.receiveFrom().size() == 0) {
             shardExchanger = null;
             inReconfig = false;
@@ -210,25 +214,17 @@ public class ShardStoreServer extends ShardStoreNode {
         Utils
        -----------------------------------------------------------------------*/
     // Your code here...
-//    private synchronized void setShardExchanger(ShardConfig newShardConfig){
-//        // find difference between shardConfig and myShardStates
-//        // to build shardExchanger
-//        shardExchanger = buildShardExchanger(newShardConfig, myShardStates);
-//        this.shardConfig = newShardConfig;
-//        sendShards();
-//        set(new ExchangeTimer(), ExchangeTimer.EXCHANGE_MILLIS);
-//    }
 
-    private synchronized void setShardExchanger(ShardExchanger newShardExchanger){
+    private void setShardExchanger(ReconfigCommand reconfigCommand){
         // find difference between shardConfig and myShardStates
         // to build shardExchanger
-        shardExchanger = newShardExchanger;
-        this.shardConfig = newShardExchanger.newShardConfig();
+        shardExchanger = buildShardExchanger(reconfigCommand.shardConfig(), myShardStates);
+        this.shardConfig = reconfigCommand.shardConfig();
         sendShards();
         set(new ExchangeTimer(), ExchangeTimer.EXCHANGE_MILLIS);
     }
 
-    private synchronized void sendShards() {
+    private void sendShards() {
         Map<Set<Address>, Pair<Set<Address>,Set<ShardState>>> sendTo = new HashMap<>(shardExchanger.sendTo());
         for (Set<Address>  addresses: sendTo.keySet()) {
             ShardPack sp = new ShardPack(shardExchanger.configNum(), sendTo.get(addresses).getRight());
@@ -248,7 +244,7 @@ public class ShardStoreServer extends ShardStoreNode {
     }
 
     private ShardExchanger buildShardExchanger(ShardConfig newShardConfig, Map<Integer, ShardState> myShardStates) {
-        ShardExchanger se = new ShardExchanger(newShardConfig.configNum(), newShardConfig);
+        ShardExchanger se = new ShardExchanger(newShardConfig.configNum());
         Set<Integer> newShards = newShardConfig.groupInfo().getOrDefault(groupId, Pair.of(new HashSet<>(), new HashSet<>())).getRight();
         Map<ShardState, Set<Address>> toSend = new HashMap<>();
         for (int shardId : myShardStates.keySet()) {

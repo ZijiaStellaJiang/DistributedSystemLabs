@@ -9,9 +9,8 @@ import lombok.Data;
 import org.apache.commons.lang3.tuple.Pair;
 
 @Data
-public class ShardExchanger implements Command {
+public class ShardExchanger {
     private final int configNum;
-    private final ShardConfig newShardConfig;
     // all addresses -> <addresses without receipt, shardStates to send>
     private Map<Set<Address>, Pair<Set<Address>,Set<ShardState>>> sendTo;
     // shardId -> server addresses
