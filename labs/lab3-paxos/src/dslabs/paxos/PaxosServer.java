@@ -208,6 +208,12 @@ public class PaxosServer extends Node {
     private void handlePaxosRequest(PaxosRequest m, Address sender) {
         // Your code here...
 
+        // for lab4 - Query command
+        if (m.command().sequenceNum == -4) {
+            AMOResult r = app.execute(m.command());
+            send(new PaxosReply(r), m.command().sender);
+            return;
+        }
 
         // only leader will process client's requests
         if (!this.address().equals(this.leaderAddress)) {

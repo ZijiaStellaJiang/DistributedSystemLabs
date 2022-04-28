@@ -9,7 +9,7 @@ Labs](http://nil.csail.mit.edu/6.824/2015/labs/lab-3.html)*
   * failed two search test 22, 23
   * timeout in three test cases 7, 17, 18
   * GC test 11: although we tried to GC logs, other storage overhead may also weight.
-  
+
 
 
 ## Overview
@@ -30,7 +30,7 @@ We completed this lab followed lab3 instructions and studied the Paxos Made Mode
 * Stable leader: leader only changes if it fails, or it's stale
 * Server is stateful in role player: we didn't divide servers to different roles but let each server can play multiple roles.
 * Each server maintains its log
-* Use ballot (term, logIndex) 
+* Use ballot (term, logIndex)
 * Use heartbeart to synchronize the leader alive and logs between leader and followers
 * leader give followers the log info for the follower updates/ sync log in heartbeat
 * followers send its first unchosen log to leader, and leader is the center to have an overview of all servers' log, then help the global log synchronization.
@@ -50,6 +50,14 @@ We completed this lab followed lab3 instructions and studied the Paxos Made Mode
 Overall, the main challenge we face now is timeout and GC.
 * For timeout, when network partition, our design tends to timeout. So we need to look into more time-saving strategies in both leader-election as well as proposal.
 * For GC, we need to reconsider the current design and find out unnecessary data storage and thus give a more efficient design. On the other hand, we can consider if there are other places where we can also apply GC; currently, we only apply GC on log of servers.
+
+
+## Review the whole project
+We've put tremendous time into both lab3 and lab4, and this is the best we could do,
+given the fact that zhensheng took 5 courses in this semester and xueyang was struggling to secure a job after graduation.
+The debug process was time-consuming and frustrating. We spent much time reading papers and design the protocol,
+but understanding the concepts well did not help to pass some of the tests.
+Hope our effort can be taken into consideration.
 
 ---
 

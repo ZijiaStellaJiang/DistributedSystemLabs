@@ -3,6 +3,7 @@ package dslabs.shardkv;
 import dslabs.atmostonce.AMOCommand;
 import dslabs.atmostonce.AMOResult;
 import dslabs.framework.Message;
+import java.util.Set;
 import lombok.Data;
 
 /* -------------------------------------------------------------------------
@@ -20,19 +21,14 @@ final class ShardStoreReply implements Message {
     private final AMOResult result;
 }
 
-//
-//// Your code here...
-///* -------------------------------------------------------------------------
-//    message between ShardStoreClient and ShardMaster
-//    which is same as
-//    message between ShardStoreServer and ShardMaster
-//   -----------------------------------------------------------------------*/
-//@Data
-//final class ShardQueryRequest implements Message {
-//
-//}
-//
-//@Data
-//final class ShardQueryReply implements Message {
-//
-//}
+// Your code here...
+@Data
+final class ShardPack implements Message {
+    private final int configNum;
+    private final Set<ShardState> shards;
+}
+
+@Data
+final class ShardReceipt implements Message {
+    private final int configNum;
+}
