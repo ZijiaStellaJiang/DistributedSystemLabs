@@ -1,3 +1,34 @@
+# Compiled Java
+out/
+
+
+# IntelliJ
+.idea/workspace.xml
+.idea/tasks.xml
+.idea-out
+.idea/uiDesigner.xml
+
+
+# Common OS/Editor files
+*~
+._*
+
+.DS_Store
+.DS_Store?
+
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# analytics
+.usage-database.db
+
+# draft
+draft/
+
+# Test
+*/ShardMasterTest.java
+
 # Compiled class file
 *.class
 
